@@ -17,12 +17,15 @@ OUT = HERE.parent / "graphics"
 TRANSPARENT = (0, 255, 0)
 
 def vivid(color):
-    """Sube saturación y brillo: en una GBA/SP sin pantalla IPS los tonos
-    pastel del pack se aplastan y los sprites se funden con el fondo."""
+    """Paleta estilo era-GBA para pantallas sin retroiluminación:
+    oversaturation (s x1.5) + contraste alto con pivote en los medios
+    (las sombras bajan y las luces suben — ramping marcado, nada de
+    gradientes sutiles que la TFT se come)."""
     r, g, b = (c / 255 for c in color)
     h, s, v = colorsys.rgb_to_hsv(r, g, b)
     s = min(1.0, s * 1.5)
-    v = min(1.0, v * 1.3)
+    v = 0.55 + (v - 0.55) * 1.5
+    v = max(0.05, min(1.0, v))
     return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, s, v))
 
 
