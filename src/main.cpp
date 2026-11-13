@@ -108,8 +108,20 @@ namespace
     constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENU" };
     constexpr int ENDED_OPTION_COUNT = sizeof(ENDED_OPTIONS) / sizeof(ENDED_OPTIONS[0]);
 
-    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "CREDITOS" };
+    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "COMO JUGAR", "CREDITOS" };
     constexpr int MAIN_MENU_OPTION_COUNT = sizeof(MAIN_MENU_OPTIONS) / sizeof(MAIN_MENU_OPTIONS[0]);
+
+    constexpr const char* HELP_LINES[] = {
+        "PEGA CON LA CRUCETA",
+        "AL PISAR EL ANILLO",
+        "CADENA (FILA DE 3):",
+        "MANTEN HASTA EL FIN",
+        "EUFORIA LLENA: L+R",
+        "PUNTOS DOBLES UN RATO",
+        "",
+        "B PARA VOLVER",
+    };
+    constexpr int HELP_LINE_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
 
     constexpr const char* CREDITS_LINES[] = {
         "MUSICA: SPRING+VINSCOOL",
@@ -242,6 +254,7 @@ enum class game_phase
     playing,
     ended,
     credits,
+    how_to_play,
 };
 
 int main()
@@ -352,6 +365,25 @@ int main()
         for (int i = 0; i < CREDITS_LINE_COUNT; ++i)
         {
             credits_text[i].clear();
+        }
+    };
+
+    bn::vector<bn::sprite_ptr, 28> help_text[HELP_LINE_COUNT];
+
+    const auto draw_help = [&]()
+    {
+        for (int i = 0; i < HELP_LINE_COUNT; ++i)
+        {
+            help_text[i].clear();
+            text_generator.generate(-74, -56 + i * 16, HELP_LINES[i], help_text[i]);
+        }
+    };
+
+    const auto clear_help = [&]()
+    {
+        for (int i = 0; i < HELP_LINE_COUNT; ++i)
+        {
+            help_text[i].clear();
         }
     };
 
@@ -610,7 +642,13 @@ int main()
     {
         if (phase == game_phase::main_menu)
         {
-            if (bn::keypad::up_pressed() || bn::keypad::down_pressed())
+            if (bn::keypad::up_pressed())
+            {
+                main_menu_cursor = (main_menu_cursor + MAIN_MENU_OPTION_COUNT - 1) % MAIN_MENU_OPTION_COUNT;
+                draw_main_menu();
+                bn::sound_items::sfx_menu_move.play();
+            }
+            else if (bn::keypad::down_pressed())
             {
                 main_menu_cursor = (main_menu_cursor + 1) % MAIN_MENU_OPTION_COUNT;
                 draw_main_menu();
@@ -631,19 +669,35 @@ int main()
                 }
                 else
                 {
-                    // Sin título en créditos: su línea choca con la primera.
+                    // Sin título en ayuda/créditos: su línea choca con la
+                    // primera de texto.
                     title_line1.clear();
                     title_line2.clear();
-                    draw_credits();
-                    phase = game_phase::credits;
+                    if (main_menu_cursor == 1)
+                    {
+                        draw_help();
+                        phase = game_phase::how_to_play;
+                    }
+                    else
+                    {
+                        draw_credits();
+                        phase = game_phase::credits;
+                    }
                 }
             }
         }
-        else if (phase == game_phase::credits)
+        else if (phase == game_phase::credits || phase == game_phase::how_to_play)
         {
             if (bn::keypad::b_pressed())
             {
-                clear_credits();
+                if (phase == game_phase::credits)
+                {
+                    clear_credits();
+                }
+                else
+                {
+                    clear_help();
+                }
                 draw_title();
                 draw_main_menu();
                 phase = game_phase::main_menu;
