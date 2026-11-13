@@ -27,11 +27,15 @@ def bluify(color):
 # (salida, hoja, [(col, fila), ...], recolor) — cada celda es 16x16; varias
 # celdas se apilan verticalmente (frames de animacion, como hero.bmp).
 SPRITES = [
-    ("enemy_fly", "enemies/fly.png", [(1, 2)], None),
-    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0)], None),
-    ("enemy_ghost", "enemies/ghost.png", [(1, 0)], None),
-    ("enemy_goblin", "enemies/goblin.png", [(1, 0)], None),
-    ("enemy_spider", "enemies/spider.png", [(1, 2)], None),
+    ("enemy_bat", "enemies/bat.png", [(0, 0), (1, 0)], None),
+    ("enemy_rat", "enemies/rat.png", [(0, 0), (1, 0)], None),
+    ("enemy_skeleton", "enemies/skeleton.png", [(0, 0), (1, 0)], None),
+    ("enemy_slime", "enemies/slime.png", [(0, 0), (1, 0)], None),
+    ("enemy_fly", "enemies/fly.png", [(1, 2), (2, 2)], None),
+    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0), (2, 0)], None),
+    ("enemy_ghost", "enemies/ghost.png", [(1, 0), (2, 0)], None),
+    ("enemy_goblin", "enemies/goblin.png", [(1, 0), (2, 0)], None),
+    ("enemy_spider", "enemies/spider.png", [(1, 2), (2, 2)], None),
     ("hero_elf", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], bluify),
 ]
 

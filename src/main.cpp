@@ -827,6 +827,10 @@ int main()
                 ++next_chart_index;
             }
 
+            // Paso de animación a medio beat: todos los enemigos (y el héroe
+            // en reposo) marchan sincronizados con la música.
+            int anim_step = (frame * 2 / FRAMES_PER_BEAT) % 2;
+
             int i = 0;
             while (i < active_notes.size())
             {
@@ -863,12 +867,17 @@ int main()
                 }
 
                 bn::fixed distance = HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
+                const bn::sprite_item& enemy_item =
+                        lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
                 note.sprite->set_position(lane_direction(note.ln) * distance);
+                note.sprite->set_item(enemy_item, anim_step);
                 style_sprite(*note.sprite, note.type, euphoria_active);
 
                 for (int t = 0; t < note.trail.size(); ++t)
                 {
                     note.trail[t].set_position(lane_direction(note.ln) * (distance + 14 * (t + 1)));
+                    // Frames alternados a lo largo de la fila: efecto onda.
+                    note.trail[t].set_item(enemy_item, (anim_step + t + 1) % 2);
                 }
 
                 ++i;
@@ -1098,8 +1107,19 @@ int main()
         }
         else
         {
-            hero_sprite.set_position(phase == game_phase::playing ? bn::fixed_point(0, 0) : bn::fixed_point(88, 14));
-            hero_sprite.set_item(*hero_item, 0);
+            // En reposo marcha en el lugar a medio beat; jugando, además da
+            // un saltito que decae en cada bombo (mismo pulso que el brillo).
+            hero_sprite.set_item(*hero_item, (frame * 2 / FRAMES_PER_BEAT) % 2);
+            if (phase == game_phase::playing)
+            {
+                int since_beat = frame % FRAMES_PER_BEAT;
+                bn::fixed bob = since_beat < 6 ? bn::fixed(6 - since_beat) / 3 : bn::fixed(0);
+                hero_sprite.set_position(0, -bob);
+            }
+            else
+            {
+                hero_sprite.set_position(88, 14);
+            }
             sword_sprite.set_visible(false);
 
             if (euphoria_active)
