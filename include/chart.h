@@ -79,6 +79,13 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
     unsigned seed = diff == difficulty::facil ? 7u : diff == difficulty::normal ? 17u : 29u;
     chart_rng rng(seed);
 
+    // Cadenas (mantener presionado): cada tanto, en vez de un enemigo
+    // normal viene uno que hay que sostener 2-3 beats. Más seguidas a
+    // mayor dificultad. El primero recién pasado el beat 16, para que
+    // la canción arranque con golpes simples.
+    int chain_period = diff == difficulty::facil ? 16 : diff == difficulty::normal ? 12 : 8;
+    int next_chain_beat = 16;
+
     int last_lane = -1;
     int beat = 0;
     int toggle = 0;
@@ -94,6 +101,16 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
         // opuesto es el peor caso posible, no solo más difícil.
         while (lane_index == last_lane || lane_index == (last_lane ^ 1));
         last_lane = lane_index;
+
+        if (beat >= next_chain_beat)
+        {
+            int hold_beats = diff == difficulty::facil ? 2 : 2 + int(rng.next() % 2u);
+            out.push_back({ beat, LANES[lane_index], enemy_type::chain, hold_beats });
+            // Un beat de respiro tras soltar, y el espaciado normal no aplica.
+            beat += hold_beats + 1;
+            next_chain_beat = beat + chain_period;
+            continue;
+        }
 
         out.push_back({ beat, LANES[lane_index], enemy_type::basic, 0 });
 

@@ -452,7 +452,22 @@ int main()
     bn::vector<bn::sprite_ptr, 16> judgement_text;
     int judgement_until = 0;
 
-    bn::vector<active_note, 8> active_notes;
+    // 12 y no 8: las cadenas ocupan su lugar durante todo el hold (hasta
+    // ~6 beats entre acercarse y sostenerse) y en DIFICIL conviven con
+    // una nota por beat — con 8 se llenaba y las notas aparecían tarde.
+    bn::vector<active_note, 12> active_notes;
+
+    // Animación de salida: al resolverse, el sprite no desaparece en seco —
+    // vuela hacia afuera (derrotado) o se mete hasta el héroe (te pegó),
+    // como en golpe-a-tiempo.html.
+    struct dying_enemy
+    {
+        bn::sprite_ptr sprite;
+        lane ln;
+        int start_frame;
+        bool outward;
+    };
+    bn::vector<dying_enemy, 8> dying_enemies;
 
     game_phase phase = game_phase::main_menu;
     int selected_song_index = 0;
@@ -472,6 +487,7 @@ int main()
     int hero_motion_start = 0;
     lane hero_motion_lane = lane::up;
     bool hero_hit = true;
+    int shake_until = 0;
 
     int shown_score = -1;
     int shown_combo = -1;
@@ -480,6 +496,8 @@ int main()
     const auto reset_game = [&]()
     {
         active_notes.clear();
+        dying_enemies.clear();
+        shake_until = 0;
         frame = 0;
         next_chart_index = 0;
         score = 0;
@@ -570,8 +588,19 @@ int main()
         judgement_text.clear();
         text_generator.generate(-16, 50, "BAD", judgement_text);
         judgement_until = frame + JUDGEMENT_FRAMES;
+        shake_until = frame + 8;
 
         bn::sound_items::sfx_miss.play();
+    };
+
+    // Pasa el sprite de una nota que se resuelve a la lista de "muriendo",
+    // para animar su salida unos frames antes de destruirlo.
+    const auto detach_sprite = [&](active_note& note, bool outward)
+    {
+        if (!dying_enemies.full())
+        {
+            dying_enemies.push_back({ bn::move(*note.sprite), note.ln, frame, outward });
+        }
     };
 
     while (true)
@@ -735,6 +764,7 @@ int main()
                     {
                         if (-diff_frames > MISS_FRAMES)
                         {
+                            detach_sprite(note, false);
                             register_miss(note);
                             remove = true;
                         }
@@ -747,11 +777,13 @@ int main()
                     {
                         if (!lane_held(note.ln))
                         {
+                            detach_sprite(note, false);
                             register_miss(note);
                             remove = true;
                         }
                         else if (frame >= note.hold_end_frame)
                         {
+                            detach_sprite(note, true);
                             resolve_hit(note, GREAT_TIER);
                             remove = true;
                         }
@@ -759,6 +791,7 @@ int main()
                 }
                 else if (-diff_frames > MISS_FRAMES)
                 {
+                    detach_sprite(note, false);
                     register_miss(note);
                     remove = true;
                 }
@@ -779,9 +812,19 @@ int main()
                     progress = 1;
                 }
 
-                bn::fixed distance = note.holding
-                        ? HIT_DISTANCE
-                        : HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
+                bn::fixed distance;
+                if (note.holding)
+                {
+                    // Mientras se sostiene, la cadena se desliza del anillo
+                    // hacia el héroe: se ve cuánto falta (llega = derrotada).
+                    int hold_left = note.hold_end_frame - frame;
+                    int hold_total = note.hold_end_frame - note.hit_frame;
+                    distance = 12 + (HIT_DISTANCE - 12) * hold_left / hold_total;
+                }
+                else
+                {
+                    distance = HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
+                }
                 note.sprite->set_position(lane_direction(note.ln) * distance);
                 style_sprite(*note.sprite, note.type, note.holding, euphoria_active);
 
@@ -826,12 +869,14 @@ int main()
 
                 if ((needs_a && !bn::keypad::a_held()) || (needs_b && !bn::keypad::b_held()))
                 {
+                    detach_sprite(note, false);
                     register_miss(note);
                 }
                 else
                 {
                     const score_tier& tier = best_diff <= PERFECT_FRAMES ? PERFECT_TIER
                             : best_diff <= GREAT_FRAMES ? GREAT_TIER : GOOD_TIER;
+                    detach_sprite(note, true);
                     resolve_hit(note, tier);
                 }
 
@@ -886,6 +931,25 @@ int main()
             }
         }
 
+        // Los enemigos "muriendo" siguen animándose aunque la partida termine
+        // en ese mismo frame (por eso no va dentro de la fase playing).
+        {
+            int d = 0;
+            while (d < dying_enemies.size())
+            {
+                dying_enemy& dying = dying_enemies[d];
+                int age = frame - dying.start_frame;
+                if (age > (dying.outward ? 12 : 8))
+                {
+                    dying_enemies.erase(dying_enemies.begin() + d);
+                    continue;
+                }
+                bn::fixed distance = dying.outward ? HIT_DISTANCE + age * 7 : HIT_DISTANCE - age * 5;
+                dying.sprite.set_position(lane_direction(dying.ln) * distance);
+                ++d;
+            }
+        }
+
         if (!judgement_text.empty() && frame > judgement_until)
         {
             judgement_text.clear();
@@ -908,6 +972,16 @@ int main()
         // fin); en los menús se esconde y queda el color plano de siempre.
         arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended);
         panel_bg.set_visible(phase != game_phase::playing);
+
+        // Temblor de la arena al fallar, como el shake del canvas del HTML.
+        if (phase == game_phase::playing && frame < shake_until)
+        {
+            arena_bg.set_position(frame % 2 == 0 ? 2 : -2, frame % 2 == 0 ? -1 : 1);
+        }
+        else
+        {
+            arena_bg.set_position(0, 0);
+        }
 
         // Pulso de beat: el escenario se ilumina en cada bombo y decae, como
         // el anillo del HTML; la euforia lo deja con brillo extra sostenido.
