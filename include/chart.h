@@ -79,10 +79,11 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
     unsigned seed = diff == difficulty::facil ? 7u : diff == difficulty::normal ? 17u : 29u;
     chart_rng rng(seed);
 
-    // Cadenas (mantener presionado): cada tanto, en vez de un enemigo
-    // normal viene uno que hay que sostener 2-3 beats. Más seguidas a
-    // mayor dificultad. El primero recién pasado el beat 16, para que
-    // la canción arranque con golpes simples.
+    // Ráfagas (fila de 3, estilo Muse Dash): cada tanto viene una fila
+    // que se revienta tocando la cruceta 3 veces; hold_beats es la
+    // ventana de mash una vez que llega al anillo. Más seguidas a mayor
+    // dificultad. La primera recién pasado el beat 16, para que la
+    // canción arranque con golpes simples.
     int chain_period = diff == difficulty::facil ? 16 : diff == difficulty::normal ? 12 : 8;
     int next_chain_beat = 16;
 
@@ -106,7 +107,7 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
         {
             int hold_beats = diff == difficulty::facil ? 2 : 2 + int(rng.next() % 2u);
             out.push_back({ beat, LANES[lane_index], enemy_type::chain, hold_beats });
-            // Un beat de respiro tras soltar, y el espaciado normal no aplica.
+            // Un beat de respiro tras la ráfaga, y el espaciado normal no aplica.
             beat += hold_beats + 1;
             next_chain_beat = beat + chain_period;
             continue;

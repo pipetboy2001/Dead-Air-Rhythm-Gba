@@ -76,6 +76,8 @@ namespace
     constexpr score_tier PERFECT_TIER{ 300, 22, "EXCELLENT" };
     constexpr score_tier GREAT_TIER{ 200, 10, "GREAT" };
     constexpr score_tier GOOD_TIER{ 100, 0, "GOOD" };
+    // Toques intermedios de una ráfaga (fila de 3): el último paga GREAT.
+    constexpr score_tier TAP_TIER{ 100, 8, "TAP" };
     constexpr int JUDGEMENT_FRAMES = 24;
 
     struct song_info
@@ -125,8 +127,8 @@ namespace
     constexpr const char* HELP_LINES[] = {
         "PEGA CON LA CRUCETA",
         "AL PISAR EL ANILLO",
-        "CADENA (FILA DE 3):",
-        "MANTEN HASTA EL FIN",
+        "FILA DE 3: TOCA LA",
+        "CRUCETA 3 VECES",
         "EUFORIA LLENA: L+R",
         "PUNTOS DOBLES UN RATO",
         "",
@@ -199,18 +201,6 @@ namespace
         return *ENEMY_SETS[enemy_set][int(ln)];
     }
 
-    bool lane_held(lane ln)
-    {
-        switch (ln)
-        {
-        case lane::up: return bn::keypad::up_held();
-        case lane::down: return bn::keypad::down_held();
-        case lane::left: return bn::keypad::left_held();
-        case lane::right: return bn::keypad::right_held();
-        }
-        return false;
-    }
-
     bool lane_pressed(lane ln)
     {
         switch (ln)
@@ -230,21 +220,16 @@ namespace
         enemy_type type;
         int hit_frame;
         int hold_end_frame;
-        bool holding = false;
         bn::optional<bn::sprite_ptr> sprite;
-        // Solo cadenas: eslabones repetidos detrás de la cabeza, que se
-        // consumen mientras se sostiene — el "mantené presionado" se ve.
+        // Solo ráfagas: unidades repetidas detrás de la cabeza; cada toque
+        // revienta la del frente y las demás avanzan.
         bn::vector<bn::sprite_ptr, 2> trail;
     };
 
-    void style_sprite(bn::sprite_ptr& sprite, enemy_type type, bool holding, bool euphoria_active)
+    void style_sprite(bn::sprite_ptr& sprite, enemy_type type, bool euphoria_active)
     {
         bn::sprite_palette_ptr palette = sprite.palette();
-        if (holding)
-        {
-            palette.set_fade(bn::colors::cyan, 0.7);
-        }
-        else if (euphoria_active)
+        if (euphoria_active)
         {
             palette.set_fade(bn::colors::yellow, 0.5);
         }
@@ -849,38 +834,12 @@ int main()
                 int diff_frames = note.hit_frame - frame;
                 bool remove = false;
 
-                if (note.type == enemy_type::chain)
-                {
-                    if (!note.holding)
-                    {
-                        if (-diff_frames > MISS_FRAMES)
-                        {
-                            detach_sprite(note, false);
-                            register_miss(note);
-                            remove = true;
-                        }
-                        else if (diff_frames <= MISS_FRAMES && lane_held(note.ln))
-                        {
-                            note.holding = true;
-                        }
-                    }
-                    else
-                    {
-                        if (!lane_held(note.ln))
-                        {
-                            detach_sprite(note, false);
-                            register_miss(note);
-                            remove = true;
-                        }
-                        else if (frame >= note.hold_end_frame)
-                        {
-                            detach_sprite(note, true);
-                            resolve_hit(note, GREAT_TIER);
-                            remove = true;
-                        }
-                    }
-                }
-                else if (-diff_frames > MISS_FRAMES)
+                // La ráfaga espera en el anillo hasta que vence su ventana
+                // de mash (hold_end_frame); lo demás, la ventana normal.
+                int deadline = note.type == enemy_type::chain
+                        ? note.hold_end_frame
+                        : note.hit_frame + MISS_FRAMES;
+                if (frame > deadline)
                 {
                     detach_sprite(note, false);
                     register_miss(note);
@@ -903,36 +862,13 @@ int main()
                     progress = 1;
                 }
 
-                bn::fixed distance;
-                if (note.holding)
-                {
-                    // Mientras se sostiene, la cadena se desliza del anillo
-                    // hacia el héroe: se ve cuánto falta (llega = derrotada).
-                    int hold_left = note.hold_end_frame - frame;
-                    int hold_total = note.hold_end_frame - note.hit_frame;
-                    distance = 12 + (HIT_DISTANCE - 12) * hold_left / hold_total;
-                }
-                else
-                {
-                    distance = HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
-                }
+                bn::fixed distance = HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
                 note.sprite->set_position(lane_direction(note.ln) * distance);
-                style_sprite(*note.sprite, note.type, note.holding, euphoria_active);
+                style_sprite(*note.sprite, note.type, euphoria_active);
 
                 for (int t = 0; t < note.trail.size(); ++t)
                 {
-                    bn::sprite_ptr& link = note.trail[t];
-                    link.set_position(lane_direction(note.ln) * (distance + 14 * (t + 1)));
-                    bool link_alive = true;
-                    if (note.holding)
-                    {
-                        // Los eslabones se consumen con el hold: quedan 2,
-                        // después 1, después solo la cabeza (ya casi está).
-                        int hold_left = note.hold_end_frame - frame;
-                        int hold_total = note.hold_end_frame - note.hit_frame;
-                        link_alive = hold_left * 3 > hold_total * (t + 1);
-                    }
-                    link.set_visible(link_alive);
+                    note.trail[t].set_position(lane_direction(note.ln) * (distance + 14 * (t + 1)));
                 }
 
                 ++i;
@@ -951,13 +887,23 @@ int main()
                 for (int j = 0; j < active_notes.size(); ++j)
                 {
                     active_note& note = active_notes[j];
-                    if (note.ln != ln || note.type == enemy_type::chain)
+                    if (note.ln != ln)
                     {
                         continue;
                     }
 
                     int diff = note.hit_frame - frame;
                     int abs_diff = diff < 0 ? -diff : diff;
+                    if (note.type == enemy_type::chain)
+                    {
+                        // Ráfaga: elegible desde que entra en ventana hasta
+                        // que vence el plazo de mash, con prioridad total.
+                        if (frame < note.hit_frame - MISS_FRAMES || frame > note.hold_end_frame)
+                        {
+                            continue;
+                        }
+                        abs_diff = 0;
+                    }
                     if (abs_diff <= MISS_FRAMES && abs_diff < best_diff)
                     {
                         best_diff = abs_diff;
@@ -971,6 +917,26 @@ int main()
                 }
 
                 active_note& note = active_notes[best_index];
+
+                if (note.type == enemy_type::chain)
+                {
+                    // Mash estilo Muse Dash: cada toque revienta la unidad
+                    // del frente y las de atrás avanzan; la última paga GREAT.
+                    detach_sprite(note, true);
+                    if (!note.trail.empty())
+                    {
+                        note.sprite = bn::move(note.trail[0]);
+                        note.trail.erase(note.trail.begin());
+                        resolve_hit(note, TAP_TIER);
+                    }
+                    else
+                    {
+                        resolve_hit(note, GREAT_TIER);
+                        active_notes.erase(active_notes.begin() + best_index);
+                    }
+                    continue;
+                }
+
                 bool needs_a = note.type == enemy_type::armored;
                 bool needs_b = note.type == enemy_type::projectile;
 
