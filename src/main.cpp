@@ -200,6 +200,9 @@ namespace
         int hold_end_frame;
         bool holding = false;
         bn::optional<bn::sprite_ptr> sprite;
+        // Solo cadenas: eslabones repetidos detrás de la cabeza, que se
+        // consumen mientras se sostiene — el "mantené presionado" se ve.
+        bn::vector<bn::sprite_ptr, 2> trail;
     };
 
     void style_sprite(bn::sprite_ptr& sprite, enemy_type type, bool holding, bool euphoria_active)
@@ -223,7 +226,7 @@ namespace
         }
         else if (type == enemy_type::chain)
         {
-            palette.set_fade(bn::colors::cyan, 0.3);
+            palette.set_fade(bn::colors::cyan, 0.5);
         }
         else
         {
@@ -747,6 +750,14 @@ int main()
                 active.hold_end_frame = active.hit_frame + note.hold_beats * FRAMES_PER_BEAT;
                 active.sprite = lane_sprite_item(note.ln).create_sprite(
                         lane_direction(note.ln) * lane_spawn_distance(note.ln));
+                if (note.type == enemy_type::chain)
+                {
+                    for (int t = 0; t < 2; ++t)
+                    {
+                        active.trail.push_back(lane_sprite_item(note.ln).create_sprite(
+                                lane_direction(note.ln) * (lane_spawn_distance(note.ln) + 14 * (t + 1))));
+                    }
+                }
                 active_notes.push_back(bn::move(active));
                 ++next_chart_index;
             }
@@ -827,6 +838,22 @@ int main()
                 }
                 note.sprite->set_position(lane_direction(note.ln) * distance);
                 style_sprite(*note.sprite, note.type, note.holding, euphoria_active);
+
+                for (int t = 0; t < note.trail.size(); ++t)
+                {
+                    bn::sprite_ptr& link = note.trail[t];
+                    link.set_position(lane_direction(note.ln) * (distance + 14 * (t + 1)));
+                    bool link_alive = true;
+                    if (note.holding)
+                    {
+                        // Los eslabones se consumen con el hold: quedan 2,
+                        // después 1, después solo la cabeza (ya casi está).
+                        int hold_left = note.hold_end_frame - frame;
+                        int hold_total = note.hold_end_frame - note.hit_frame;
+                        link_alive = hold_left * 3 > hold_total * (t + 1);
+                    }
+                    link.set_visible(link_alive);
+                }
 
                 ++i;
             }
