@@ -18,6 +18,9 @@ enum class enemy_type
     armored,
     chain,
     projectile,
+    // Corazón curativo: se golpea como un enemigo y cura 1 HP; fallarlo
+    // no castiga. Solo aparece de NORMAL hacia arriba.
+    heart,
 };
 
 enum class lane
@@ -41,6 +44,9 @@ enum class difficulty
     facil,
     normal,
     dificil,
+    // Chart especial de la canción BOSS (no aparece en el menú): una nota
+    // por beat y ráfagas muy seguidas.
+    boss,
 };
 
 // ~120 beats a 29 frames/beat ~= 58s, cerca de 1 minuto por canción.
@@ -76,7 +82,9 @@ private:
 inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
 {
     constexpr lane LANES[] = { lane::up, lane::down, lane::left, lane::right };
-    unsigned seed = diff == difficulty::facil ? 7u : diff == difficulty::normal ? 17u : 29u;
+    unsigned seed = diff == difficulty::facil ? 7u
+            : diff == difficulty::normal ? 17u
+            : diff == difficulty::dificil ? 29u : 43u;
     chart_rng rng(seed);
 
     // Ráfagas (fila de 3, estilo Muse Dash): cada tanto viene una fila
@@ -84,8 +92,14 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
     // ventana de mash una vez que llega al anillo. Más seguidas a mayor
     // dificultad. La primera recién pasado el beat 16, para que la
     // canción arranque con golpes simples.
-    int chain_period = diff == difficulty::facil ? 16 : diff == difficulty::normal ? 12 : 8;
+    int chain_period = diff == difficulty::facil ? 16
+            : diff == difficulty::normal ? 12
+            : diff == difficulty::dificil ? 8 : 6;
     int next_chain_beat = 16;
+
+    // Un corazón curativo aproximadamente a la mitad, de NORMAL hacia
+    // arriba (en FACIL casi no se pierde vida, sería ruido).
+    bool heart_pending = diff != difficulty::facil;
 
     int last_lane = -1;
     int beat = 0;
@@ -113,13 +127,19 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
             continue;
         }
 
-        out.push_back({ beat, LANES[lane_index], enemy_type::basic, 0 });
+        enemy_type type = enemy_type::basic;
+        if (heart_pending && beat >= CHART_LENGTH_BEATS / 2)
+        {
+            type = enemy_type::heart;
+            heart_pending = false;
+        }
+        out.push_back({ beat, LANES[lane_index], type, 0 });
 
         if (diff == difficulty::facil)
         {
             beat += 2;
         }
-        else if (diff == difficulty::dificil)
+        else if (diff == difficulty::dificil || diff == difficulty::boss)
         {
             beat += 1;
         }

@@ -39,6 +39,7 @@
 #include "bn_sprite_items_enemy_goblin.h"
 #include "bn_sprite_items_enemy_spider.h"
 #include "bn_sprite_items_hero_elf.h"
+#include "bn_sprite_items_heart_pickup.h"
 
 #include "common_variable_8x16_sprite_font.h"
 
@@ -71,13 +72,17 @@ namespace
         int points;
         int euphoria;
         const char* label;
+        int count_index; // 0 excellent, 1 great, 2 good — para la precisión
     };
 
-    constexpr score_tier PERFECT_TIER{ 300, 22, "EXCELLENT" };
-    constexpr score_tier GREAT_TIER{ 200, 10, "GREAT" };
-    constexpr score_tier GOOD_TIER{ 100, 0, "GOOD" };
+    constexpr score_tier PERFECT_TIER{ 300, 22, "EXCELLENT", 0 };
+    constexpr score_tier GREAT_TIER{ 200, 10, "GREAT", 1 };
+    constexpr score_tier GOOD_TIER{ 100, 0, "GOOD", 2 };
     // Toques intermedios de una ráfaga (fila de 3): el último paga GREAT.
-    constexpr score_tier TAP_TIER{ 100, 8, "TAP" };
+    constexpr score_tier TAP_TIER{ 100, 8, "TAP", 2 };
+
+    // Rango por precisión al terminar una canción (0 = sin rango guardado).
+    constexpr const char* RANK_NAMES[] = { "", "C", "B", "A", "S" };
     constexpr int JUDGEMENT_FRAMES = 24;
 
     struct song_info
@@ -114,6 +119,9 @@ namespace
     };
     constexpr int SONG_LIST_COUNT = sizeof(SONG_LIST) / sizeof(SONG_LIST[0]);
     constexpr int VISIBLE_SONGS = 4;
+    // La última canción es el BOSS: juega un escalón de dificultad más
+    // arriba de lo elegido (DIFICIL usa el chart especial difficulty::boss).
+    constexpr int BOSS_SONG_INDEX = SONG_LIST_COUNT - 1;
 
     constexpr const char* DIFFICULTY_NAMES[] = { "FACIL", "NORMAL", "DIFICIL" };
     constexpr int DIFFICULTY_COUNT = sizeof(DIFFICULTY_NAMES) / sizeof(DIFFICULTY_NAMES[0]);
@@ -131,7 +139,7 @@ namespace
         "CRUCETA 3 VECES",
         "EUFORIA LLENA: L+R",
         "PUNTOS DOBLES UN RATO",
-        "",
+        "CORAZON: PEGALE Y CURA",
         "B PARA VOLVER",
     };
     constexpr int HELP_LINE_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
@@ -151,14 +159,16 @@ namespace
     // Récord por canción y dificultad, persistido en SRAM. magic detecta la
     // primera vez que corre el juego en un cartucho/batería nueva (SRAM sin
     // inicializar, basura de fábrica) para no mostrar un récord falso.
-    // 51 y no 50: al sacar HAYDEN (colgaba maxmod) cambió el layout de
-    // high_scores — el magic nuevo descarta saves con el layout viejo.
-    constexpr int SAVE_MAGIC = 0x474F4C51;
+    // 52: se sumaron ranks/stars al layout — el magic nuevo descarta
+    // saves con layouts viejos (igual que cuando salió HAYDEN).
+    constexpr int SAVE_MAGIC = 0x474F4C52;
 
     struct save_data
     {
         int magic;
         int high_scores[SONG_LIST_COUNT][DIFFICULTY_COUNT];
+        int ranks[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // índice en RANK_NAMES
+        int stars[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // 1 = full combo logrado
     };
 
     bn::fixed_point lane_direction(lane ln)
@@ -229,7 +239,12 @@ namespace
     void style_sprite(bn::sprite_ptr& sprite, enemy_type type, bool euphoria_active)
     {
         bn::sprite_palette_ptr palette = sprite.palette();
-        if (euphoria_active)
+        if (type == enemy_type::heart)
+        {
+            // El corazón se queda con sus colores, incluso en euforia.
+            palette.set_fade_intensity(0);
+        }
+        else if (euphoria_active)
         {
             palette.set_fade(bn::colors::yellow, 0.5);
         }
@@ -276,6 +291,8 @@ int main()
             for (int d = 0; d < DIFFICULTY_COUNT; ++d)
             {
                 save.high_scores[s][d] = 0;
+                save.ranks[s][d] = 0;
+                save.stars[s][d] = 0;
             }
         }
         bn::sram::write(save);
@@ -284,12 +301,20 @@ int main()
     bn::vector<chart_note, CHART_MAX_NOTES> facil_chart;
     bn::vector<chart_note, CHART_MAX_NOTES> normal_chart;
     bn::vector<chart_note, CHART_MAX_NOTES> dificil_chart;
+    bn::vector<chart_note, CHART_MAX_NOTES> boss_chart;
     build_chart(difficulty::facil, facil_chart);
     build_chart(difficulty::normal, normal_chart);
     build_chart(difficulty::dificil, dificil_chart);
+    build_chart(difficulty::boss, boss_chart);
 
-    const auto chart_for_difficulty = [&](int diff_index) -> const bn::ivector<chart_note>&
+    const auto chart_for = [&](int song_index, int diff_index) -> const bn::ivector<chart_note>&
     {
+        // El BOSS juega un escalón más arriba: FACIL usa el chart NORMAL,
+        // NORMAL el DIFICIL, y DIFICIL el chart especial de boss.
+        if (song_index == BOSS_SONG_INDEX)
+        {
+            ++diff_index;
+        }
         if (diff_index == 0)
         {
             return facil_chart;
@@ -298,7 +323,11 @@ int main()
         {
             return normal_chart;
         }
-        return dificil_chart;
+        if (diff_index == 2)
+        {
+            return dificil_chart;
+        }
+        return boss_chart;
     };
 
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
@@ -436,6 +465,16 @@ int main()
         record_line.clear();
         bn::string<24> record_str = "RECORD ";
         record_str.append(bn::to_string<10>(save.high_scores[menu_song][menu_difficulty]));
+        int saved_rank = save.ranks[menu_song][menu_difficulty];
+        if (saved_rank > 0)
+        {
+            record_str.append(" ");
+            record_str.append(RANK_NAMES[saved_rank]);
+        }
+        if (save.stars[menu_song][menu_difficulty])
+        {
+            record_str.append("*"); // estrella: full combo logrado
+        }
         text_generator.generate(-56, 46, record_str, record_line);
 
         title_line2.clear();
@@ -494,7 +533,7 @@ int main()
     {
         heart_sprites.push_back(bn::sprite_items::heart.create_sprite(64 + i * 11, -72));
     }
-    bn::vector<bn::sprite_ptr, 36> message_text;
+    bn::vector<bn::sprite_ptr, 56> message_text;
     bn::vector<bn::sprite_ptr, 16> judgement_text;
     int judgement_until = 0;
 
@@ -523,6 +562,7 @@ int main()
     int combo = 0;
     int hp = MAX_HP;
     int miss_count = 0;
+    int tier_counts[3] = { 0, 0, 0 }; // excellent / great / good
     int combo_pop_until = 0;
     int euphoria_meter = 0;
     bool euphoria_active = false;
@@ -549,6 +589,7 @@ int main()
         combo = 0;
         hp = MAX_HP;
         miss_count = 0;
+        tier_counts[0] = tier_counts[1] = tier_counts[2] = 0;
         combo_pop_until = 0;
         euphoria_meter = 0;
         euphoria_active = false;
@@ -571,20 +612,52 @@ int main()
         bn::music::play(SONG_LIST[selected_song_index].music, 1, true);
     };
 
-    const auto save_high_score = [&]()
+    // Guarda récord, mejor rango y estrella de full combo (el rango y la
+    // estrella solo cuentan si la canción se terminó). Devuelve si hubo
+    // récord nuevo de puntaje.
+    const auto save_results = [&](bool cleared, int rank_index, bool full_combo)
     {
-        int& record = save.high_scores[selected_song_index][selected_difficulty];
-        if (score > record)
+        int s = selected_song_index;
+        int d = selected_difficulty;
+        bool new_record = false;
+        bool dirty = false;
+        if (score > save.high_scores[s][d])
         {
-            record = score;
-            bn::sram::write(save);
-            return true;
+            save.high_scores[s][d] = score;
+            new_record = true;
+            dirty = true;
         }
-        return false;
+        if (cleared && rank_index > save.ranks[s][d])
+        {
+            save.ranks[s][d] = rank_index;
+            dirty = true;
+        }
+        if (cleared && full_combo && !save.stars[s][d])
+        {
+            save.stars[s][d] = 1;
+            dirty = true;
+        }
+        if (dirty)
+        {
+            bn::sram::write(save);
+        }
+        return new_record;
+    };
+
+    // Precisión 0-100 ponderada por calidad de golpe, y rango S/A/B/C.
+    const auto accuracy_percent = [&]()
+    {
+        int resolved = tier_counts[0] + tier_counts[1] + tier_counts[2] + miss_count;
+        if (resolved == 0)
+        {
+            return 0;
+        }
+        return (tier_counts[0] * 100 + tier_counts[1] * 70 + tier_counts[2] * 40) / resolved;
     };
 
     const auto resolve_hit = [&](active_note& note, const score_tier& tier)
     {
+        tier_counts[tier.count_index] += 1;
         combo += 1;
         combo_pop_until = frame + 10;
         int multiplier_percent = 100 + (combo / 10) * 25;
@@ -804,7 +877,7 @@ int main()
         }
         else
         {
-            const bn::ivector<chart_note>& current_chart = chart_for_difficulty(selected_difficulty);
+            const bn::ivector<chart_note>& current_chart = chart_for(selected_song_index, selected_difficulty);
             while (next_chart_index < current_chart.size() && !active_notes.full() &&
                    LEAD_IN_FRAMES + current_chart[next_chart_index].beat * FRAMES_PER_BEAT - frame <= APPROACH_FRAMES)
             {
@@ -815,8 +888,9 @@ int main()
                 active.type = note.type;
                 active.hit_frame = LEAD_IN_FRAMES + note.beat * FRAMES_PER_BEAT;
                 active.hold_end_frame = active.hit_frame + note.hold_beats * FRAMES_PER_BEAT;
-                const bn::sprite_item& enemy_item =
-                        lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
+                const bn::sprite_item& enemy_item = note.type == enemy_type::heart
+                        ? bn::sprite_items::heart_pickup
+                        : lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
                 active.sprite = enemy_item.create_sprite(
                         lane_direction(note.ln) * lane_spawn_distance(note.ln));
                 if (note.type == enemy_type::chain)
@@ -849,9 +923,17 @@ int main()
                         : note.hit_frame + MISS_FRAMES;
                 if (frame > deadline)
                 {
-                    detach_sprite(note, false);
-                    register_miss(note);
-                    remove = true;
+                    if (note.type == enemy_type::heart)
+                    {
+                        // Perder el corazón no castiga: era un premio.
+                        remove = true;
+                    }
+                    else
+                    {
+                        detach_sprite(note, false);
+                        register_miss(note);
+                        remove = true;
+                    }
                 }
 
                 if (remove)
@@ -871,10 +953,14 @@ int main()
                 }
 
                 bn::fixed distance = HIT_DISTANCE + progress * (lane_spawn_distance(note.ln) - HIT_DISTANCE);
-                const bn::sprite_item& enemy_item =
-                        lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
+                const bn::sprite_item& enemy_item = note.type == enemy_type::heart
+                        ? bn::sprite_items::heart_pickup
+                        : lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
                 note.sprite->set_position(lane_direction(note.ln) * distance);
-                note.sprite->set_item(enemy_item, anim_step);
+                if (note.type != enemy_type::heart) // el corazón tiene 1 frame
+                {
+                    note.sprite->set_item(enemy_item, anim_step);
+                }
                 style_sprite(*note.sprite, note.type, euphoria_active);
 
                 for (int t = 0; t < note.trail.size(); ++t)
@@ -962,8 +1048,13 @@ int main()
                 {
                     const score_tier& tier = best_diff <= PERFECT_FRAMES ? PERFECT_TIER
                             : best_diff <= GREAT_FRAMES ? GREAT_TIER : GOOD_TIER;
+                    bool heals = note.type == enemy_type::heart;
                     detach_sprite(note, true);
                     resolve_hit(note, tier);
+                    if (heals && hp < MAX_HP)
+                    {
+                        ++hp;
+                    }
                 }
 
                 active_notes.erase(active_notes.begin() + best_index);
@@ -985,12 +1076,16 @@ int main()
             {
                 phase = game_phase::ended;
                 bn::music::stop();
-                bool new_record = save_high_score();
+                bool new_record = save_results(false, 0, false);
                 message_text.clear();
-                text_generator.generate(-48, -16, "GAME OVER", message_text);
+                text_generator.generate(-48, -28, "GAME OVER", message_text);
+                bn::string<20> acc_line = "PRECISION ";
+                acc_line.append(bn::to_string<4>(accuracy_percent()));
+                acc_line.append("%");
+                text_generator.generate(-48, -10, acc_line, message_text);
                 if (new_record)
                 {
-                    text_generator.generate(-56, 2, "NUEVO RECORD", message_text);
+                    text_generator.generate(-56, 8, "NUEVO RECORD", message_text);
                 }
                 ended_cursor = 0;
                 draw_ended_menu();
@@ -999,18 +1094,26 @@ int main()
             {
                 phase = game_phase::ended;
                 bn::music::stop();
-                bool new_record = save_high_score();
+                int accuracy = accuracy_percent();
+                int rank_index = accuracy >= 95 ? 4 : accuracy >= 85 ? 3 : accuracy >= 70 ? 2 : 1;
+                bool full_combo = miss_count == 0;
+                bool new_record = save_results(true, rank_index, full_combo);
                 message_text.clear();
-                text_generator.generate(-24, -16, "LISTO", message_text);
-                int message_y = 2;
-                if (miss_count == 0)
+                text_generator.generate(-24, -28, "LISTO", message_text);
+                bn::string<16> rank_line = "RANGO ";
+                rank_line.append(RANK_NAMES[rank_index]);
+                if (full_combo)
                 {
-                    text_generator.generate(-48, message_y, "FULL COMBO", message_text);
-                    message_y += 16;
+                    rank_line.append(" *"); // estrella de full combo
                 }
+                text_generator.generate(-32, -10, rank_line, message_text);
+                bn::string<20> acc_line = "PRECISION ";
+                acc_line.append(bn::to_string<4>(accuracy));
+                acc_line.append("%");
+                text_generator.generate(-48, 8, acc_line, message_text);
                 if (new_record)
                 {
-                    text_generator.generate(-56, message_y, "NUEVO RECORD", message_text);
+                    text_generator.generate(-56, 26, "NUEVO RECORD", message_text);
                 }
                 ended_cursor = 0;
                 draw_ended_menu();
