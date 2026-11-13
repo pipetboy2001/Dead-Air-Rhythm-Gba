@@ -129,7 +129,7 @@ namespace
     constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENU" };
     constexpr int ENDED_OPTION_COUNT = sizeof(ENDED_OPTIONS) / sizeof(ENDED_OPTIONS[0]);
 
-    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "COMO JUGAR", "CREDITOS" };
+    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "COMO JUGAR", "CONFIGURACION", "CREDITOS" };
     constexpr int MAIN_MENU_OPTION_COUNT = sizeof(MAIN_MENU_OPTIONS) / sizeof(MAIN_MENU_OPTIONS[0]);
 
     constexpr const char* HELP_LINES[] = {
@@ -159,9 +159,12 @@ namespace
     // Récord por canción y dificultad, persistido en SRAM. magic detecta la
     // primera vez que corre el juego en un cartucho/batería nueva (SRAM sin
     // inicializar, basura de fábrica) para no mostrar un récord falso.
-    // 52: se sumaron ranks/stars al layout — el magic nuevo descarta
-    // saves con layouts viejos (igual que cuando salió HAYDEN).
-    constexpr int SAVE_MAGIC = 0x474F4C52;
+    // 53: se sumó latency al layout — el magic nuevo descarta saves con
+    // layouts viejos (igual que en los cambios anteriores).
+    constexpr int SAVE_MAGIC = 0x474F4C53;
+
+    // Tope del ajuste de latencia, en frames (~17 ms cada uno).
+    constexpr int LATENCY_LIMIT = 15;
 
     struct save_data
     {
@@ -169,6 +172,7 @@ namespace
         int high_scores[SONG_LIST_COUNT][DIFFICULTY_COUNT];
         int ranks[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // índice en RANK_NAMES
         int stars[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // 1 = full combo logrado
+        int latency; // frames que se restan al reloj de juicio (+ = pegas tarde)
     };
 
     bn::fixed_point lane_direction(lane ln)
@@ -275,6 +279,7 @@ enum class game_phase
     ended,
     credits,
     how_to_play,
+    settings,
 };
 
 int main()
@@ -295,6 +300,7 @@ int main()
                 save.stars[s][d] = 0;
             }
         }
+        save.latency = 0;
         bn::sram::write(save);
     }
 
@@ -424,6 +430,43 @@ int main()
         for (int i = 0; i < HELP_LINE_COUNT; ++i)
         {
             help_text[i].clear();
+        }
+    };
+
+    // Configuración: por ahora solo el ajuste de latencia (en frames,
+    // ~17 ms cada uno). Positivo = el juicio se corre hacia atrás, para
+    // quien siente que pega tarde aunque vaya al ritmo.
+    constexpr int SETTINGS_LINE_COUNT = 5;
+    bn::vector<bn::sprite_ptr, 28> settings_text[SETTINGS_LINE_COUNT];
+
+    const auto draw_settings = [&]()
+    {
+        bn::string<24> value_line = "LATENCIA: ";
+        if (save.latency > 0)
+        {
+            value_line.append("+");
+        }
+        value_line.append(bn::to_string<4>(save.latency));
+        const char* lines[SETTINGS_LINE_COUNT] = {
+            value_line.c_str(),
+            "IZQ/DER AJUSTA (17 MS)",
+            "SI PEGAS TARDE SUBILA",
+            "SI PEGAS ANTES BAJALA",
+            "B GUARDA Y VUELVE",
+        };
+        constexpr int SETTINGS_Y[SETTINGS_LINE_COUNT] = { -48, -24, -8, 8, 40 };
+        for (int i = 0; i < SETTINGS_LINE_COUNT; ++i)
+        {
+            settings_text[i].clear();
+            text_generator.generate(-74, SETTINGS_Y[i], lines[i], settings_text[i]);
+        }
+    };
+
+    const auto clear_settings = [&]()
+    {
+        for (int i = 0; i < SETTINGS_LINE_COUNT; ++i)
+        {
+            settings_text[i].clear();
         }
     };
 
@@ -764,12 +807,39 @@ int main()
                         draw_help();
                         phase = game_phase::how_to_play;
                     }
+                    else if (main_menu_cursor == 2)
+                    {
+                        draw_settings();
+                        phase = game_phase::settings;
+                    }
                     else
                     {
                         draw_credits();
                         phase = game_phase::credits;
                     }
                 }
+            }
+        }
+        else if (phase == game_phase::settings)
+        {
+            if (bn::keypad::left_pressed() || bn::keypad::right_pressed())
+            {
+                int delta = bn::keypad::left_pressed() ? -1 : 1;
+                int adjusted = save.latency + delta;
+                if (adjusted >= -LATENCY_LIMIT && adjusted <= LATENCY_LIMIT)
+                {
+                    save.latency = adjusted;
+                    draw_settings();
+                    bn::sound_items::sfx_menu_move.play();
+                }
+            }
+            else if (bn::keypad::b_pressed())
+            {
+                clear_settings();
+                bn::sram::write(save);
+                draw_main_menu();
+                phase = game_phase::main_menu;
+                bn::sound_items::sfx_menu_select.play();
             }
         }
         else if (phase == game_phase::credits || phase == game_phase::how_to_play)
@@ -909,6 +979,10 @@ int main()
             // en reposo) marchan sincronizados con la música.
             int anim_step = (frame * 2 / FRAMES_PER_BEAT) % 2;
 
+            // Reloj de juicio con el ajuste de latencia de CONFIGURACION:
+            // solo afecta cuándo se juzgan los golpes, no los visuales.
+            int judge_frame = frame - save.latency;
+
             int i = 0;
             while (i < active_notes.size())
             {
@@ -921,7 +995,7 @@ int main()
                 int deadline = note.type == enemy_type::chain
                         ? note.hold_end_frame
                         : note.hit_frame + MISS_FRAMES;
-                if (frame > deadline)
+                if (judge_frame > deadline)
                 {
                     if (note.type == enemy_type::heart)
                     {
@@ -991,13 +1065,13 @@ int main()
                         continue;
                     }
 
-                    int diff = note.hit_frame - frame;
+                    int diff = note.hit_frame - judge_frame;
                     int abs_diff = diff < 0 ? -diff : diff;
                     if (note.type == enemy_type::chain)
                     {
                         // Ráfaga: elegible desde que entra en ventana hasta
                         // que vence el plazo de mash, con prioridad total.
-                        if (frame < note.hit_frame - MISS_FRAMES || frame > note.hold_end_frame)
+                        if (judge_frame < note.hit_frame - MISS_FRAMES || judge_frame > note.hold_end_frame)
                         {
                             continue;
                         }
