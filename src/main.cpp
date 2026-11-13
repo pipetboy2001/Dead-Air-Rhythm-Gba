@@ -129,6 +129,9 @@ namespace
     constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENU" };
     constexpr int ENDED_OPTION_COUNT = sizeof(ENDED_OPTIONS) / sizeof(ENDED_OPTIONS[0]);
 
+    constexpr const char* PAUSE_OPTIONS[] = { "CONTINUAR", "SALIR" };
+    constexpr int PAUSE_OPTION_COUNT = sizeof(PAUSE_OPTIONS) / sizeof(PAUSE_OPTIONS[0]);
+
     constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "COMO JUGAR", "CONFIGURACION", "CREDITOS" };
     constexpr int MAIN_MENU_OPTION_COUNT = sizeof(MAIN_MENU_OPTIONS) / sizeof(MAIN_MENU_OPTIONS[0]);
 
@@ -280,6 +283,7 @@ enum class game_phase
     credits,
     how_to_play,
     settings,
+    paused,
 };
 
 int main()
@@ -562,6 +566,21 @@ int main()
                 text_generator.generate(-56, y, ">", ended_line[k]);
             }
             text_generator.generate(-42, y, ENDED_OPTIONS[k], ended_line[k]);
+        }
+    };
+
+    // El menú de pausa reusa ended_line/ended_cursor (fases disjuntas).
+    const auto draw_pause_menu = [&]()
+    {
+        for (int k = 0; k < PAUSE_OPTION_COUNT; ++k)
+        {
+            ended_line[k].clear();
+            bn::fixed y = 40 + k * 18;
+            if (k == ended_cursor)
+            {
+                text_generator.generate(-56, y, ">", ended_line[k]);
+            }
+            text_generator.generate(-42, y, PAUSE_OPTIONS[k], ended_line[k]);
         }
     };
 
@@ -905,6 +924,49 @@ int main()
                 bn::sound_items::sfx_menu_select.play();
             }
         }
+        else if (phase == game_phase::paused)
+        {
+            bool start_now = bn::keypad::start_pressed();
+            if (bn::keypad::up_pressed() || bn::keypad::down_pressed())
+            {
+                ended_cursor = (ended_cursor + 1) % PAUSE_OPTION_COUNT;
+                draw_pause_menu();
+                bn::sound_items::sfx_menu_move.play();
+            }
+            else if (bn::keypad::b_pressed() || (start_now && ended_cursor == 0))
+            {
+                // Continuar: B es el atajo, START sobre CONTINUAR también.
+                message_text.clear();
+                for (int k = 0; k < PAUSE_OPTION_COUNT; ++k)
+                {
+                    ended_line[k].clear();
+                }
+                bn::music::resume();
+                phase = game_phase::playing;
+                bn::sound_items::sfx_menu_select.play();
+            }
+            else if (start_now)
+            {
+                // Salir al menú de canciones, limpiando la partida a medias.
+                message_text.clear();
+                judgement_text.clear();
+                for (int k = 0; k < PAUSE_OPTION_COUNT; ++k)
+                {
+                    ended_line[k].clear();
+                }
+                active_notes.clear();
+                dying_enemies.clear();
+                score_text.clear();
+                combo_text.clear();
+                euphoria_text.clear();
+                bn::music::resume();
+                play_menu_music();
+                draw_title();
+                draw_menu();
+                phase = game_phase::song_select;
+                bn::sound_items::sfx_menu_select.play();
+            }
+        }
         else if (phase == game_phase::ended)
         {
             if (bn::keypad::up_pressed())
@@ -1192,6 +1254,19 @@ int main()
                 ended_cursor = 0;
                 draw_ended_menu();
             }
+
+            // Pausa al final del frame (si la partida sigue viva): así ningún
+            // otro código de juego corre con la música ya pausada.
+            if (phase == game_phase::playing && bn::keypad::start_pressed())
+            {
+                phase = game_phase::paused;
+                bn::music::pause();
+                message_text.clear();
+                text_generator.generate(-24, -28, "PAUSA", message_text);
+                ended_cursor = 0;
+                draw_pause_menu();
+                bn::sound_items::sfx_menu_select.play();
+            }
         }
 
         // Los enemigos "muriendo" siguen animándose aunque la partida termine
@@ -1233,7 +1308,8 @@ int main()
 
         // La arena solo tiene sentido jugando (y de fondo en la pantalla de
         // fin); en los menús se esconde y queda el color plano de siempre.
-        arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended);
+        arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended
+                || phase == game_phase::paused);
         panel_bg.set_visible(phase != game_phase::playing);
         logo_bg.set_visible(phase == game_phase::main_menu);
 
@@ -1292,7 +1368,7 @@ int main()
             // En reposo marcha en el lugar a medio beat; jugando, además da
             // un saltito que decae en cada bombo (mismo pulso que el brillo).
             hero_sprite.set_item(*hero_item, (frame * 2 / FRAMES_PER_BEAT) % 2);
-            if (phase == game_phase::playing)
+            if (phase == game_phase::playing || phase == game_phase::paused)
             {
                 int since_beat = frame % FRAMES_PER_BEAT;
                 bn::fixed bob = since_beat < 6 ? bn::fixed(6 - since_beat) / 3 : bn::fixed(0);
@@ -1314,7 +1390,8 @@ int main()
             }
         }
 
-        if (phase == game_phase::playing || phase == game_phase::ended)
+        if (phase == game_phase::playing || phase == game_phase::ended
+                || phase == game_phase::paused)
         {
             if (score != shown_score)
             {
@@ -1396,7 +1473,12 @@ int main()
             }
         }
 
-        ++frame;
+        // En pausa el reloj de juego se congela: notas, animaciones y
+        // timers quedan exactamente donde estaban al reanudar.
+        if (phase != game_phase::paused)
+        {
+            ++frame;
+        }
         bn::core::update();
     }
 }
