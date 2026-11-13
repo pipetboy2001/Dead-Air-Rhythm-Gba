@@ -15,19 +15,28 @@ HERE = Path(__file__).parent
 OUT = HERE.parent / "graphics"
 TRANSPARENT = (0, 255, 0)
 
-# (salida, hoja, [(col, fila), ...]) — cada celda es 16x16; varias celdas
-# se apilan verticalmente (frames de animacion, como hero.bmp).
+def bluify(color):
+    """Palette swap: los verdes dominantes rotan a azul. hero.bmp ya es este
+    mismo elfo en verde, asi que el segundo heroe se distingue por color."""
+    r, g, b = color
+    if g > r + 10 and g > b + 10:
+        return (b, r, g)
+    return color
+
+
+# (salida, hoja, [(col, fila), ...], recolor) — cada celda es 16x16; varias
+# celdas se apilan verticalmente (frames de animacion, como hero.bmp).
 SPRITES = [
-    ("enemy_fly", "enemies/fly.png", [(1, 2)]),
-    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0)]),
-    ("enemy_ghost", "enemies/ghost.png", [(1, 0)]),
-    ("enemy_goblin", "enemies/goblin.png", [(1, 0)]),
-    ("enemy_spider", "enemies/spider.png", [(1, 2)]),
-    ("hero_elf", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)]),
+    ("enemy_fly", "enemies/fly.png", [(1, 2)], None),
+    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0)], None),
+    ("enemy_ghost", "enemies/ghost.png", [(1, 0)], None),
+    ("enemy_goblin", "enemies/goblin.png", [(1, 0)], None),
+    ("enemy_spider", "enemies/spider.png", [(1, 2)], None),
+    ("hero_elf", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], bluify),
 ]
 
 
-def convert(name, sheet_path, cells):
+def convert(name, sheet_path, cells, recolor=None):
     sheet = Image.open(HERE / sheet_path).convert("RGBA")
     frames = len(cells)
     palette = [TRANSPARENT]
@@ -46,6 +55,8 @@ def convert(name, sheet_path, cells):
                     palette.append(color)
                 pixels.append(palette.index(color))
     assert len(palette) <= 16, f"{name}: demasiados colores: {len(palette)}"
+    if recolor:
+        palette = [palette[0]] + [recolor(c) for c in palette[1:]]
     out.putdata(pixels)
     flat = [c for rgb in palette for c in rgb] + [0] * (768 - 3 * len(palette))
     out.putpalette(flat)
