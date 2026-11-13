@@ -801,7 +801,9 @@ int main()
                 draw_main_menu();
                 bn::sound_items::sfx_menu_move.play();
             }
-            else if (bn::keypad::start_pressed())
+            // A confirma igual que START en todos los menús (en consola real
+            // es el botón natural de "aceptar"); jugando, A queda reservado.
+            else if (bn::keypad::start_pressed() || bn::keypad::a_pressed())
             {
                 for (int k = 0; k < MAIN_MENU_OPTION_COUNT; ++k)
                 {
@@ -912,7 +914,7 @@ int main()
                 phase = game_phase::main_menu;
                 bn::sound_items::sfx_menu_select.play();
             }
-            else if (bn::keypad::start_pressed())
+            else if (bn::keypad::start_pressed() || bn::keypad::a_pressed())
             {
                 title_line1.clear();
                 title_line2.clear();
@@ -926,7 +928,7 @@ int main()
         }
         else if (phase == game_phase::paused)
         {
-            bool start_now = bn::keypad::start_pressed();
+            bool start_now = bn::keypad::start_pressed() || bn::keypad::a_pressed();
             if (bn::keypad::up_pressed() || bn::keypad::down_pressed())
             {
                 ended_cursor = (ended_cursor + 1) % PAUSE_OPTION_COUNT;
@@ -981,7 +983,7 @@ int main()
                 draw_ended_menu();
                 bn::sound_items::sfx_menu_move.play();
             }
-            else if (bn::keypad::start_pressed())
+            else if (bn::keypad::start_pressed() || bn::keypad::a_pressed())
             {
                 message_text.clear();
                 for (int k = 0; k < ENDED_OPTION_COUNT; ++k)
@@ -1424,19 +1426,13 @@ int main()
                 combo_sprite.set_y(-74 - combo_bounce);
             }
 
+            // Todos los corazones comparten UNA paleta (Butano deduplica
+            // paletas idénticas), así que teñir el perdido teñía todos
+            // (bug visto en consola real: 1 golpe "apagaba" las 5 vidas).
+            // El corazón perdido se oculta en vez de teñirse.
             for (int i = 0; i < MAX_HP; ++i)
             {
-                bn::sprite_ptr& heart_sprite = heart_sprites[i];
-                heart_sprite.set_visible(true);
-                bn::sprite_palette_ptr heart_palette = heart_sprite.palette();
-                if (i < hp)
-                {
-                    heart_palette.set_fade_intensity(0);
-                }
-                else
-                {
-                    heart_palette.set_fade(bn::colors::gray, 0.75);
-                }
+                heart_sprites[i].set_visible(i < hp);
             }
 
             if (euphoria_meter != shown_euphoria)
