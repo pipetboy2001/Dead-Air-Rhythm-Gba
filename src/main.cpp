@@ -94,7 +94,6 @@ namespace
         { "PUPPYLAND", bn::music_items::puppyland_clean, bn::color(5, 7, 11) },
         { "FOREST", bn::music_items::forest_clean, bn::color(3, 10, 4) },
         { "GLIMMER", bn::music_items::glimmer_clean, bn::color(9, 9, 2) },
-        { "HAYDEN", bn::music_items::hayden_clean, bn::color(6, 4, 11) },
         { "HIDEOUT", bn::music_items::hideout_clean, bn::color(7, 7, 7) },
         { "PRISON", bn::music_items::prison_clean, bn::color(8, 3, 3) },
         { "VICTORY", bn::music_items::victory_clean, bn::color(11, 9, 3) },
@@ -127,7 +126,9 @@ namespace
     // Récord por canción y dificultad, persistido en SRAM. magic detecta la
     // primera vez que corre el juego en un cartucho/batería nueva (SRAM sin
     // inicializar, basura de fábrica) para no mostrar un récord falso.
-    constexpr int SAVE_MAGIC = 0x474F4C50;
+    // 51 y no 50: al sacar HAYDEN (colgaba maxmod) cambió el layout de
+    // high_scores — el magic nuevo descarta saves con el layout viejo.
+    constexpr int SAVE_MAGIC = 0x474F4C51;
 
     struct save_data
     {
@@ -407,12 +408,15 @@ int main()
 
     draw_main_menu();
 
-    // Tema de menú: reusa una canción existente (la más liviana) en vez de
-    // sumar un archivo de audio más — suena en main_menu/song_select/credits,
-    // reset_game() la reemplaza por la canción elegida al entrar a jugar.
+    // Tema de menú: reusa una canción existente en vez de sumar un archivo
+    // de audio más — suena en main_menu/song_select/credits, reset_game()
+    // la reemplaza por la canción elegida al entrar a jugar. battle_clean
+    // y no hayden_clean: hayden cuelga maxmod al llegar a cierto patrón
+    // (el juego entero se congela); battle es el módulo que venía recortado
+    // y validado por el propio repo de Butano.
     const auto play_menu_music = [&]()
     {
-        bn::music::play(bn::music_items::hayden_clean, 1, true);
+        bn::music::play(bn::music_items::battle_clean, 1, true);
     };
     play_menu_music();
 
