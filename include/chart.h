@@ -1,5 +1,5 @@
 /*
- * Charts generados por semilla (mismo PRNG mulberry32 que la versión web),
+ * Charts generados por semilla (PRNG mulberry32),
  * uno por dificultad — la canción es un eje aparte (ver SONG_LIST en
  * main.cpp). Todos con enemy_type::basic nada más ("solo cruceta"). El
  * código de acorazado/cadena/proyectil/euforia sigue en main.cpp sin

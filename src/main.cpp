@@ -1,7 +1,6 @@
 /*
- * Golpe a tiempo — mecánicas reales en GBA (sin música todavía: el reloj es
- * el contador de frames; cuando exista un módulo tracker real, los mismos
- * ticks pasarán a mapear filas de patrón en vez de frames).
+ * Rhythm Caverns — juego de ritmo para GBA. El reloj es el contador de
+ * frames, calibrado al tempo de cada canción vía FRAMES_PER_BEAT.
  */
 
 #include "bn_core.h"
@@ -26,6 +25,7 @@
 #include "bn_music_items.h"
 #include "bn_regular_bg_items_arena.h"
 #include "bn_regular_bg_items_menu_panel.h"
+#include "bn_regular_bg_items_logo.h"
 #include "bn_sprite_items_hero.h"
 #include "bn_sprite_items_weapon_sword.h"
 #include "bn_sprite_items_heart.h"
@@ -54,8 +54,8 @@ namespace
     // Silencio antes de la primera nota: sin esto, una nota en beat 0 nace ya
     // pegada al anillo (sin tiempo de acercarse) justo cuando arranca/reinicia.
     constexpr int LEAD_IN_FRAMES = APPROACH_FRAMES;
-    // shortcut: ventanas más anchas que la web porque acá no hay pista de
-    // audio todavía, solo el anillo visual — ajustar cuando entre la música.
+    // shortcut: ventanas generosas mientras el tempo no esté afinado de
+    // oído — apretar cuando la calibración esté verificada jugando.
     constexpr int MISS_FRAMES = 14;
     constexpr int PERFECT_FRAMES = 4;
     constexpr int GREAT_FRAMES = 9;
@@ -313,28 +313,32 @@ int main()
     sword_sprite.set_visible(false);
 
     // Arena pintada (piso, carriles y anillo de golpe con arcos por carril),
-    // mismo diseño que golpe-a-tiempo.html — generada por
-    // assets-src/make_arena.py. El exterior del piso es transparente, así
-    // se sigue viendo el zone_color por canción que pone el loop principal.
+    // generada por assets-src/make_arena.py. El exterior del piso es
+    // transparente, así se sigue viendo el zone_color por canción que
+    // pone el loop principal.
     bn::regular_bg_ptr arena_bg = bn::regular_bg_items::arena.create_bg(0, 0);
     arena_bg.set_visible(false);
 
     // Tarjeta de menú (borde, sombra desplazada y barra de acento con los
-    // colores de carril), como el .panel del HTML. Exterior transparente;
-    // en la pantalla de fin se dibuja encima de la arena, como el panel
-    // de resultados del HTML. z_order menor = delante, misma prioridad.
+    // colores de carril). Exterior transparente; en la pantalla de fin se
+    // dibuja encima de la arena. z_order menor = delante, misma prioridad.
     bn::regular_bg_ptr panel_bg = bn::regular_bg_items::menu_panel.create_bg(0, 0);
     panel_bg.set_z_order(-1);
+
+    // Logotipo RHYTHM CAVERNS (assets-src/make_logo.py), solo en el menú
+    // principal — en las demás pantallas el título es texto chico.
+    bn::regular_bg_ptr logo_bg = bn::regular_bg_items::logo.create_bg(0, 0);
+    logo_bg.set_z_order(-2);
 
     bn::vector<bn::sprite_ptr, 20> title_line1;
     bn::vector<bn::sprite_ptr, 24> title_line2;
 
+    // Título de texto para las pantallas sin logo (selección de canción):
+    // -58 y no -66, justo debajo de la barra de acento de la tarjeta.
     const auto draw_title = [&]()
     {
-        // -58 y no -66: justo debajo de la barra de acento de la tarjeta.
-        text_generator.generate(-40, -58, "DEAD AIR", title_line1);
+        text_generator.generate(-56, -58, "RHYTHM CAVERNS", title_line1);
     };
-    draw_title();
 
     bn::vector<bn::sprite_ptr, 20> main_menu_line[MAIN_MENU_OPTION_COUNT];
     int main_menu_cursor = 0;
@@ -500,8 +504,7 @@ int main()
     bn::vector<active_note, 12> active_notes;
 
     // Animación de salida: al resolverse, el sprite no desaparece en seco —
-    // vuela hacia afuera (derrotado) o se mete hasta el héroe (te pegó),
-    // como en golpe-a-tiempo.html.
+    // vuela hacia afuera (derrotado) o se mete hasta el héroe (te pegó).
     struct dying_enemy
     {
         bn::sprite_ptr sprite;
@@ -673,6 +676,7 @@ int main()
 
                 if (main_menu_cursor == 0)
                 {
+                    draw_title();
                     draw_menu();
                     phase = game_phase::song_select;
                 }
@@ -707,7 +711,6 @@ int main()
                 {
                     clear_help();
                 }
-                draw_title();
                 draw_main_menu();
                 phase = game_phase::main_menu;
                 bn::sound_items::sfx_menu_select.play();
@@ -742,6 +745,7 @@ int main()
             else if (bn::keypad::b_pressed())
             {
                 clear_song_select();
+                title_line1.clear();
                 draw_main_menu();
                 phase = game_phase::main_menu;
                 bn::sound_items::sfx_menu_select.play();
@@ -1046,7 +1050,7 @@ int main()
         }
         else
         {
-            // El fondo oscuro del HTML (#19132d) detrás de la tarjeta.
+            // El fondo oscuro del juego (#19132d) detrás de la tarjeta.
             bn::bg_palettes::set_transparent_color(bn::color(3, 2, 5));
         }
 
@@ -1054,8 +1058,9 @@ int main()
         // fin); en los menús se esconde y queda el color plano de siempre.
         arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended);
         panel_bg.set_visible(phase != game_phase::playing);
+        logo_bg.set_visible(phase == game_phase::main_menu);
 
-        // Temblor de la arena al fallar, como el shake del canvas del HTML.
+        // Temblor de la arena al fallar.
         if (phase == game_phase::playing && frame < shake_until)
         {
             arena_bg.set_position(frame % 2 == 0 ? 2 : -2, frame % 2 == 0 ? -1 : 1);
@@ -1065,8 +1070,8 @@ int main()
             arena_bg.set_position(0, 0);
         }
 
-        // Pulso de beat: el escenario se ilumina en cada bombo y decae, como
-        // el anillo del HTML; la euforia lo deja con brillo extra sostenido.
+        // Pulso de beat: el escenario se ilumina en cada bombo y decae;
+        // la euforia lo deja con brillo extra sostenido.
         if (phase == game_phase::playing)
         {
             int since_beat = frame % FRAMES_PER_BEAT;

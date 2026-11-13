@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Genera los fondos pintados del juego (estilo golpe-a-tiempo.html):
+"""Genera los fondos pintados del juego:
 
 - graphics/arena.bmp: piso circular + 4 carriles tenues + anillo de golpe
-  con arcos por carril, paleta oscura del HTML. Exterior transparente
+  con arcos por carril, paleta oscura del juego. Exterior transparente
   (indice 0) para que se vea el zone_color por cancion de main.cpp.
 - graphics/menu_panel.bmp: tarjeta de menu con borde, sombra desplazada y
-  barra de acento con los 4 colores de carril (el .panel del HTML).
-  Exterior transparente; en la pantalla de fin queda sobre la arena.
+  barra de acento con los 4 colores de carril. Exterior transparente;
+  en la pantalla de fin queda sobre la arena.
 
 Correr desde esta carpeta: python make_arena.py
 Deja *_preview.png al lado para mirar sin compilar.
@@ -22,7 +22,7 @@ CX = CY = 128.0
 BG = (0x19, 0x13, 0x2D)
 FLOOR = (0x23, 0x1B, 0x3F)
 INK = (0xF2, 0xED, 0xFF)
-# (dx, dy, color) — mismos colores de carril del tema oscuro del HTML.
+# (dx, dy, color) — colores de carril del tema oscuro del juego.
 LANES = [
     (0, -1, (0x3F, 0xD3, 0xC3)),   # up: teal
     (0, 1, (0xB1, 0x8F, 0xFF)),    # down: violeta
