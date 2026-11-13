@@ -33,6 +33,12 @@
 #include "bn_sprite_items_enemy_rat.h"
 #include "bn_sprite_items_enemy_skeleton.h"
 #include "bn_sprite_items_enemy_slime.h"
+#include "bn_sprite_items_enemy_fly.h"
+#include "bn_sprite_items_enemy_flying_skull.h"
+#include "bn_sprite_items_enemy_ghost.h"
+#include "bn_sprite_items_enemy_goblin.h"
+#include "bn_sprite_items_enemy_spider.h"
+#include "bn_sprite_items_hero_elf.h"
 
 #include "common_variable_8x16_sprite_font.h"
 
@@ -77,6 +83,8 @@ namespace
         const char* name;
         bn::music_item music;
         bn::color zone_color;
+        int enemy_set;
+        int hero;
     };
 
     // Todas CC0, del mismo pack (Haydenwoffle .it Soundtrack, Spring+VinsCool,
@@ -88,16 +96,19 @@ namespace
     // "BOSS" es minor_boss_r.it, licencia CC-BY 4.0 (Spring/Spring Enterprises,
     // https://opengameart.org/content/minor-boss-r) — ya venía con el propio
     // repo de Butano, igual que battle_clean.it.
+    // enemy_set/hero dan identidad por zona: 0 = mazmorra (bat/rat/
+    // skeleton/slime, ninja), 1 = pradera (bichos, elfo), 2 = cripta
+    // (calavera/fantasma, ninja). Ver ENEMY_SETS y HEROES más abajo.
     constexpr song_info SONG_LIST[] = {
-        { "BATTLE", bn::music_items::battle_clean, bn::color(10, 6, 4) },
-        { "DOGGO", bn::music_items::doggo_clean, bn::color(4, 12, 5) },
-        { "PUPPYLAND", bn::music_items::puppyland_clean, bn::color(5, 7, 11) },
-        { "FOREST", bn::music_items::forest_clean, bn::color(3, 10, 4) },
-        { "GLIMMER", bn::music_items::glimmer_clean, bn::color(9, 9, 2) },
-        { "HIDEOUT", bn::music_items::hideout_clean, bn::color(7, 7, 7) },
-        { "PRISON", bn::music_items::prison_clean, bn::color(8, 3, 3) },
-        { "VICTORY", bn::music_items::victory_clean, bn::color(11, 9, 3) },
-        { "BOSS", bn::music_items::minor_boss_r, bn::color(9, 2, 2) },
+        { "BATTLE", bn::music_items::battle_clean, bn::color(10, 6, 4), 0, 0 },
+        { "DOGGO", bn::music_items::doggo_clean, bn::color(4, 12, 5), 1, 1 },
+        { "PUPPYLAND", bn::music_items::puppyland_clean, bn::color(5, 7, 11), 1, 1 },
+        { "FOREST", bn::music_items::forest_clean, bn::color(3, 10, 4), 1, 1 },
+        { "GLIMMER", bn::music_items::glimmer_clean, bn::color(9, 9, 2), 0, 0 },
+        { "HIDEOUT", bn::music_items::hideout_clean, bn::color(7, 7, 7), 2, 0 },
+        { "PRISON", bn::music_items::prison_clean, bn::color(8, 3, 3), 2, 0 },
+        { "VICTORY", bn::music_items::victory_clean, bn::color(11, 9, 3), 0, 1 },
+        { "BOSS", bn::music_items::minor_boss_r, bn::color(9, 2, 2), 2, 0 },
     };
     constexpr int SONG_LIST_COUNT = sizeof(SONG_LIST) / sizeof(SONG_LIST[0]);
     constexpr int VISIBLE_SONGS = 4;
@@ -167,16 +178,25 @@ namespace
         return bn::fixed(70);
     }
 
-    const bn::sprite_item& lane_sprite_item(lane ln)
+    // Orden de carriles: up, down, left, right (igual que el enum lane).
+    // El carril de arriba lleva siempre al enemigo volador del set.
+    constexpr const bn::sprite_item* ENEMY_SETS[][4] = {
+        { &bn::sprite_items::enemy_bat, &bn::sprite_items::enemy_rat,
+          &bn::sprite_items::enemy_skeleton, &bn::sprite_items::enemy_slime },
+        { &bn::sprite_items::enemy_fly, &bn::sprite_items::enemy_spider,
+          &bn::sprite_items::enemy_goblin, &bn::sprite_items::enemy_slime },
+        { &bn::sprite_items::enemy_flying_skull, &bn::sprite_items::enemy_ghost,
+          &bn::sprite_items::enemy_skeleton, &bn::sprite_items::enemy_spider },
+    };
+
+    constexpr const bn::sprite_item* HEROES[] = {
+        &bn::sprite_items::hero,
+        &bn::sprite_items::hero_elf,
+    };
+
+    const bn::sprite_item& lane_sprite_item(lane ln, int enemy_set)
     {
-        switch (ln)
-        {
-        case lane::up: return bn::sprite_items::enemy_bat;
-        case lane::down: return bn::sprite_items::enemy_rat;
-        case lane::left: return bn::sprite_items::enemy_skeleton;
-        case lane::right: return bn::sprite_items::enemy_slime;
-        }
-        return bn::sprite_items::enemy_bat;
+        return *ENEMY_SETS[enemy_set][int(ln)];
     }
 
     bool lane_held(lane ln)
@@ -299,6 +319,8 @@ int main()
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
 
     bn::sprite_ptr hero_sprite = bn::sprite_items::hero.create_sprite(0, 0);
+    // Héroe de la canción elegida (ninja o elfo); reset_game() lo actualiza.
+    const bn::sprite_item* hero_item = &bn::sprite_items::hero;
 
     // Espada que aparece solo durante el golpe (sin arte de personaje armado:
     // es un sprite aparte que se posiciona junto al héroe en ese instante).
@@ -547,6 +569,8 @@ int main()
         hero_hit = true;
         judgement_until = 0;
         judgement_text.clear();
+        hero_item = HEROES[SONG_LIST[selected_song_index].hero];
+        hero_sprite.set_item(*hero_item, 0);
         hero_sprite.set_position(0, 0);
         bn::sprite_palette_ptr reset_palette = hero_sprite.palette();
         reset_palette.set_fade_intensity(0);
@@ -802,13 +826,15 @@ int main()
                 active.type = note.type;
                 active.hit_frame = LEAD_IN_FRAMES + note.beat * FRAMES_PER_BEAT;
                 active.hold_end_frame = active.hit_frame + note.hold_beats * FRAMES_PER_BEAT;
-                active.sprite = lane_sprite_item(note.ln).create_sprite(
+                const bn::sprite_item& enemy_item =
+                        lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
+                active.sprite = enemy_item.create_sprite(
                         lane_direction(note.ln) * lane_spawn_distance(note.ln));
                 if (note.type == enemy_type::chain)
                 {
                     for (int t = 0; t < 2; ++t)
                     {
-                        active.trail.push_back(lane_sprite_item(note.ln).create_sprite(
+                        active.trail.push_back(enemy_item.create_sprite(
                                 lane_direction(note.ln) * (lane_spawn_distance(note.ln) + 14 * (t + 1))));
                     }
                 }
@@ -1091,7 +1117,7 @@ int main()
             {
                 bn::fixed punch = t < bn::fixed(0.5) ? t * 2 : (1 - t) * 2;
                 hero_sprite.set_position(lane_direction(hero_motion_lane) * (bn::fixed(16) * punch));
-                hero_sprite.set_item(bn::sprite_items::hero, (frame / 2) % 3);
+                hero_sprite.set_item(*hero_item, (frame / 2) % 3);
                 hero_sprite.set_horizontal_flip(hero_motion_lane == lane::right);
 
                 sword_sprite.set_visible(true);
@@ -1107,7 +1133,7 @@ int main()
         else
         {
             hero_sprite.set_position(phase == game_phase::playing ? bn::fixed_point(0, 0) : bn::fixed_point(88, 14));
-            hero_sprite.set_item(bn::sprite_items::hero, 0);
+            hero_sprite.set_item(*hero_item, 0);
             sword_sprite.set_visible(false);
 
             if (euphoria_active)
