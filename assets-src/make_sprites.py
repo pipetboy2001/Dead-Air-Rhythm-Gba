@@ -8,12 +8,23 @@ indice 0 = (0,255,0) transparente. El heroe alternativo (elf) sale como
 Correr desde esta carpeta: python make_sprites.py
 Deja sprites_preview.png al lado para mirar sin compilar.
 """
+import colorsys
 from pathlib import Path
 from PIL import Image
 
 HERE = Path(__file__).parent
 OUT = HERE.parent / "graphics"
 TRANSPARENT = (0, 255, 0)
+
+def vivid(color):
+    """Sube saturación y brillo: en una GBA/SP sin pantalla IPS los tonos
+    pastel del pack se aplastan y los sprites se funden con el fondo."""
+    r, g, b = (c / 255 for c in color)
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    s = min(1.0, s * 1.5)
+    v = min(1.0, v * 1.3)
+    return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, s, v))
+
 
 def bluify(color):
     """Palette swap: los verdes dominantes rotan a azul. hero.bmp ya es este
@@ -36,6 +47,7 @@ SPRITES = [
     ("enemy_ghost", "enemies/ghost.png", [(1, 0), (2, 0)], None),
     ("enemy_goblin", "enemies/goblin.png", [(1, 0), (2, 0)], None),
     ("enemy_spider", "enemies/spider.png", [(1, 2), (2, 2)], None),
+    ("hero", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], None),
     ("hero_elf", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], bluify),
 ]
 
@@ -61,6 +73,7 @@ def convert(name, sheet_path, cells, recolor=None):
     assert len(palette) <= 16, f"{name}: demasiados colores: {len(palette)}"
     if recolor:
         palette = [palette[0]] + [recolor(c) for c in palette[1:]]
+    palette = [palette[0]] + [vivid(c) for c in palette[1:]]
     out.putdata(pixels)
     flat = [c for rgb in palette for c in rgb] + [0] * (768 - 3 * len(palette))
     out.putpalette(flat)
