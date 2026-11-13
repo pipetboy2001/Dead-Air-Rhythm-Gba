@@ -15,6 +15,7 @@
 #include "bn_string.h"
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_palette_ptr.h"
+#include "bn_regular_bg_ptr.h"
 #include "bn_sprite_text_generator.h"
 #include "bn_music.h"
 #include "bn_bg_palettes.h"
@@ -23,6 +24,8 @@
 #include "bn_sound_items.h"
 
 #include "bn_music_items.h"
+#include "bn_regular_bg_items_arena.h"
+#include "bn_regular_bg_items_menu_panel.h"
 #include "bn_sprite_items_hero.h"
 #include "bn_sprite_items_weapon_sword.h"
 #include "bn_sprite_items_heart.h"
@@ -285,24 +288,27 @@ int main()
     bn::sprite_ptr sword_sprite = bn::sprite_items::weapon_sword.create_sprite(0, 0);
     sword_sprite.set_visible(false);
 
-    // Anillo de golpe: marca dónde (y por lo tanto cuándo) hay que pegar.
-    // Una "o" de la fuente hace de círculo barato, sin arte nuevo.
-    bn::vector<bn::sprite_ptr, 4> ring_text;
-    {
-        constexpr lane RING_LANES[] = { lane::up, lane::down, lane::left, lane::right };
-        for (lane ln : RING_LANES)
-        {
-            bn::fixed_point pos = lane_direction(ln) * HIT_DISTANCE;
-            text_generator.generate(pos.x() - 4, pos.y(), "o", ring_text);
-        }
-    }
+    // Arena pintada (piso, carriles y anillo de golpe con arcos por carril),
+    // mismo diseño que golpe-a-tiempo.html — generada por
+    // assets-src/make_arena.py. El exterior del piso es transparente, así
+    // se sigue viendo el zone_color por canción que pone el loop principal.
+    bn::regular_bg_ptr arena_bg = bn::regular_bg_items::arena.create_bg(0, 0);
+    arena_bg.set_visible(false);
+
+    // Tarjeta de menú (borde, sombra desplazada y barra de acento con los
+    // colores de carril), como el .panel del HTML. Exterior transparente;
+    // en la pantalla de fin se dibuja encima de la arena, como el panel
+    // de resultados del HTML. z_order menor = delante, misma prioridad.
+    bn::regular_bg_ptr panel_bg = bn::regular_bg_items::menu_panel.create_bg(0, 0);
+    panel_bg.set_z_order(-1);
 
     bn::vector<bn::sprite_ptr, 20> title_line1;
     bn::vector<bn::sprite_ptr, 24> title_line2;
 
     const auto draw_title = [&]()
     {
-        text_generator.generate(-40, -66, "DEAD AIR", title_line1);
+        // -58 y no -66: justo debajo de la barra de acento de la tarjeta.
+        text_generator.generate(-40, -58, "DEAD AIR", title_line1);
     };
     draw_title();
 
@@ -333,7 +339,7 @@ int main()
         for (int i = 0; i < CREDITS_LINE_COUNT; ++i)
         {
             credits_text[i].clear();
-            text_generator.generate(-74, -60 + i * 16, CREDITS_LINES[i], credits_text[i]);
+            text_generator.generate(-74, -56 + i * 16, CREDITS_LINES[i], credits_text[i]);
         }
     };
 
@@ -589,6 +595,8 @@ int main()
                 }
                 else
                 {
+                    // Sin título en créditos: su línea choca con la primera.
+                    title_line1.clear();
                     title_line2.clear();
                     draw_credits();
                     phase = game_phase::credits;
@@ -600,6 +608,7 @@ int main()
             if (bn::keypad::b_pressed())
             {
                 clear_credits();
+                draw_title();
                 draw_main_menu();
                 phase = game_phase::main_menu;
                 bn::sound_items::sfx_menu_select.play();
@@ -887,14 +896,30 @@ int main()
         }
         else
         {
-            bn::bg_palettes::set_transparent_color(bn::color(0x3813));
+            // El fondo oscuro del HTML (#19132d) detrás de la tarjeta.
+            bn::bg_palettes::set_transparent_color(bn::color(3, 2, 5));
         }
 
-        // El anillo de golpe solo tiene sentido jugando: se esconde en menú/fin.
-        bool ring_visible = phase == game_phase::playing;
-        for (bn::sprite_ptr& ring_sprite : ring_text)
+        // La arena solo tiene sentido jugando (y de fondo en la pantalla de
+        // fin); en los menús se esconde y queda el color plano de siempre.
+        arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended);
+        panel_bg.set_visible(phase != game_phase::playing);
+
+        // Pulso de beat: el escenario se ilumina en cada bombo y decae, como
+        // el anillo del HTML; la euforia lo deja con brillo extra sostenido.
+        if (phase == game_phase::playing)
         {
-            ring_sprite.set_visible(ring_visible);
+            int since_beat = frame % FRAMES_PER_BEAT;
+            bn::fixed brightness = since_beat < 6 ? bn::fixed(6 - since_beat) / 40 : bn::fixed(0);
+            if (euphoria_active)
+            {
+                brightness += bn::fixed(0.08);
+            }
+            bn::bg_palettes::set_brightness(brightness);
+        }
+        else
+        {
+            bn::bg_palettes::set_brightness(0);
         }
 
         bn::sprite_palette_ptr hero_palette = hero_sprite.palette();
