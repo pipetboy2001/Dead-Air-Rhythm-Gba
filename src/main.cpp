@@ -64,7 +64,9 @@ namespace
     constexpr int EUPHORIA_MAX = 100;
     constexpr int EUPHORIA_BAR_SEGMENTS = 10;
     constexpr int EUPHORIA_FRAMES = FRAMES_PER_BEAT * 16;
-    constexpr int MISS_EUPHORIA_PENALTY = 40;
+    // Penalización de euforia por fallo, por dificultad (FACIL/NORMAL/
+    // DIFICIL): 40 parejo se sentía castigador en consola real.
+    constexpr int MISS_EUPHORIA_PENALTY[] = { 10, 20, 30 };
     constexpr bn::fixed HIT_DISTANCE = 40;
 
     struct score_tier
@@ -140,7 +142,7 @@ namespace
         "AL PISAR EL ANILLO",
         "FILA DE 3: TOCA LA",
         "CRUCETA 3 VECES",
-        "EUFORIA LLENA: L+R",
+        "EUFORIA LLENA: A",
         "PUNTOS DOBLES UN RATO",
         "CORAZON: PEGALE Y CURA",
         "B PARA VOLVER",
@@ -615,6 +617,25 @@ int main()
     };
     bn::vector<dying_enemy, 8> dying_enemies;
 
+    // En pausa la tarjeta debe verse limpia: se ocultan héroe, espada y
+    // enemigos (y se restauran al continuar).
+    const auto set_battle_sprites_visible = [&](bool visible)
+    {
+        hero_sprite.set_visible(visible);
+        if (!visible)
+        {
+            sword_sprite.set_visible(false); // solo existe durante el golpe
+        }
+        for (active_note& note : active_notes)
+        {
+            note.sprite->set_visible(visible);
+            for (bn::sprite_ptr& link : note.trail)
+            {
+                link.set_visible(visible);
+            }
+        }
+    };
+
     game_phase phase = game_phase::main_menu;
     int selected_song_index = 0;
     int selected_difficulty = 1;
@@ -755,7 +776,7 @@ int main()
         hp -= 1;
         miss_count += 1;
 
-        euphoria_meter -= MISS_EUPHORIA_PENALTY;
+        euphoria_meter -= MISS_EUPHORIA_PENALTY[selected_difficulty];
         if (euphoria_meter < 0)
         {
             euphoria_meter = 0;
@@ -943,6 +964,7 @@ int main()
                 {
                     ended_line[k].clear();
                 }
+                set_battle_sprites_visible(true);
                 bn::music::resume();
                 phase = game_phase::playing;
                 bn::sound_items::sfx_menu_select.play();
@@ -961,6 +983,7 @@ int main()
                 score_text.clear();
                 combo_text.clear();
                 euphoria_text.clear();
+                hero_sprite.set_visible(true); // en los menús se ve de mascota
                 bn::music::resume();
                 play_menu_music();
                 draw_title();
@@ -1202,8 +1225,10 @@ int main()
             {
                 euphoria_active = false;
             }
+            // A activa la euforia (L+R sigue sirviendo, pero en una GBA
+            // real tocar los dos hombros a la vez cuesta).
             else if (!euphoria_active && euphoria_meter >= EUPHORIA_MAX &&
-                     bn::keypad::l_held() && bn::keypad::r_held())
+                     (bn::keypad::a_pressed() || (bn::keypad::l_held() && bn::keypad::r_held())))
             {
                 euphoria_meter = 0;
                 euphoria_active = true;
@@ -1263,6 +1288,10 @@ int main()
             {
                 phase = game_phase::paused;
                 bn::music::pause();
+                // Tarjeta limpia: fuera combate y texto del último juicio.
+                set_battle_sprites_visible(false);
+                dying_enemies.clear();
+                judgement_text.clear();
                 message_text.clear();
                 text_generator.generate(-24, -28, "PAUSA", message_text);
                 ended_cursor = 0;
