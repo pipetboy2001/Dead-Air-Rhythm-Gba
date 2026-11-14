@@ -86,6 +86,14 @@ def main():
     (HERE / "logo_preview.png").write_bytes(png)
     print(HERE / "logo_preview.png")
 
+    # Banner recortado para el README (solo la zona del texto).
+    from PIL import Image as PILImage
+    import io
+    banner = PILImage.open(io.BytesIO(png)).crop((36, 44, 220, 122))
+    banner = banner.resize((banner.width * 2, banner.height * 2), PILImage.NEAREST)
+    banner.save(HERE / "logo_banner.png")
+    print(HERE / "logo_banner.png")
+
 
 if __name__ == "__main__":
     main()
