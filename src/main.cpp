@@ -1,6 +1,6 @@
 /*
  * Rhythm Caverns — juego de ritmo para GBA. El reloj es el contador de
- * frames, calibrado al tempo de cada canción vía FRAMES_PER_BEAT.
+ * frames, calibrado al tempo de cada canción vía frames_per_beat por canción.
  */
 
 #include "bn_core.h"
@@ -50,14 +50,11 @@
 
 namespace
 {
-    // shortcut: calibrado desde el tempo de battle_clean.it (125 BPM) a frames
-    // de GBA (~59.73/s): 60/125*59.7275 ~= 28.7 -> 29. Es un punto de partida,
-    // no algo que se pueda verificar sin escuchar el juego — se afina jugando.
-    constexpr int FRAMES_PER_BEAT = 29;
-    constexpr int APPROACH_FRAMES = FRAMES_PER_BEAT * 3;
-    // Silencio antes de la primera nota: sin esto, una nota en beat 0 nace ya
-    // pegada al anillo (sin tiempo de acercarse) justo cuando arranca/reinicia.
-    constexpr int LEAD_IN_FRAMES = APPROACH_FRAMES;
+    // El tempo es por canción (frames_per_beat en SONG_LIST, calculado del
+    // header de cada .it: 60/tempo*59.7275 fps — la convención tempo=BPM es
+    // la que validó BATTLE jugando). approach/lead_in se derivan en
+    // reset_game(); el lead_in evita que una nota en beat 0 nazca pegada
+    // al anillo al arrancar.
     // shortcut: ventanas generosas mientras el tempo no esté afinado de
     // oído — apretar cuando la calibración esté verificada jugando.
     constexpr int MISS_FRAMES = 14;
@@ -66,7 +63,7 @@ namespace
     constexpr int MAX_HP = 5;
     constexpr int EUPHORIA_MAX = 100;
     constexpr int EUPHORIA_BAR_SEGMENTS = 10;
-    constexpr int EUPHORIA_FRAMES = FRAMES_PER_BEAT * 16;
+    constexpr int EUPHORIA_BEATS = 16;
     // Penalización de euforia por fallo, por dificultad (FACIL/NORMAL/
     // DIFICIL/MUY DIFICIL): 40 parejo se sentía castigador en consola real.
     constexpr int MISS_EUPHORIA_PENALTY[] = { 10, 20, 30, 40 };
@@ -95,6 +92,7 @@ namespace
         const char* name;
         bn::music_item music;
         bn::color zone_color;
+        int frames_per_beat; // 60/tempo del .it * 59.7275 fps
         int enemy_set;
         int hero;
     };
@@ -112,15 +110,15 @@ namespace
     // skeleton/slime, ninja), 1 = pradera (bichos, elfo), 2 = cripta
     // (calavera/fantasma, ninja). Ver ENEMY_SETS y HEROES más abajo.
     constexpr song_info SONG_LIST[] = {
-        { "BATTLE", bn::music_items::battle_clean, bn::color(10, 6, 4), 0, 0 },
-        { "DOGGO", bn::music_items::doggo_clean, bn::color(4, 12, 5), 1, 1 },
-        { "PUPPYLAND", bn::music_items::puppyland_clean, bn::color(5, 7, 11), 1, 1 },
-        { "FOREST", bn::music_items::forest_clean, bn::color(3, 10, 4), 1, 1 },
-        { "GLIMMER", bn::music_items::glimmer_clean, bn::color(9, 9, 2), 0, 0 },
-        { "HIDEOUT", bn::music_items::hideout_clean, bn::color(7, 7, 7), 2, 0 },
-        { "PRISON", bn::music_items::prison_clean, bn::color(8, 3, 3), 2, 0 },
-        { "VICTORY", bn::music_items::victory_clean, bn::color(11, 9, 3), 0, 1 },
-        { "BOSS", bn::music_items::minor_boss_r, bn::color(9, 2, 2), 2, 0 },
+        { "BATTLE", bn::music_items::battle_clean, bn::color(10, 6, 4), 29, 0, 0 },
+        { "DOGGO", bn::music_items::doggo_clean, bn::color(4, 12, 5), 29, 1, 1 },
+        { "PUPPYLAND", bn::music_items::puppyland_clean, bn::color(5, 7, 11), 29, 1, 1 },
+        { "FOREST", bn::music_items::forest_clean, bn::color(3, 10, 4), 29, 1, 1 },
+        { "GLIMMER", bn::music_items::glimmer_clean, bn::color(9, 9, 2), 18, 0, 0 },
+        { "HIDEOUT", bn::music_items::hideout_clean, bn::color(7, 7, 7), 29, 2, 0 },
+        { "PRISON", bn::music_items::prison_clean, bn::color(8, 3, 3), 24, 2, 0 },
+        { "VICTORY", bn::music_items::victory_clean, bn::color(11, 9, 3), 45, 0, 1 },
+        { "BOSS", bn::music_items::minor_boss_r, bn::color(9, 2, 2), 18, 2, 0 },
     };
     constexpr int SONG_LIST_COUNT = sizeof(SONG_LIST) / sizeof(SONG_LIST[0]);
     constexpr int VISIBLE_SONGS = 4;
@@ -671,6 +669,10 @@ int main()
     game_phase phase = game_phase::main_menu;
     int selected_song_index = 0;
     int selected_difficulty = 1;
+    // Tempo de la canción en curso (reset_game los pone desde SONG_LIST).
+    int frames_per_beat = 29;
+    int approach_frames = frames_per_beat * 3;
+    int lead_in_frames = approach_frames;
     int frame = 0;
     int next_chart_index = 0;
     int score = 0;
@@ -714,6 +716,9 @@ int main()
         hero_hit = true;
         judgement_until = 0;
         judgement_text.clear();
+        frames_per_beat = SONG_LIST[selected_song_index].frames_per_beat;
+        approach_frames = frames_per_beat * 3;
+        lead_in_frames = approach_frames;
         hero_item = HEROES[SONG_LIST[selected_song_index].hero];
         hero_sprite.set_item(*hero_item, 0);
         bn::bg_palette_ptr zone_palette = zone_bg.palette();
@@ -1081,15 +1086,15 @@ int main()
         {
             const bn::ivector<chart_note>& current_chart = chart_for(selected_song_index, selected_difficulty);
             while (next_chart_index < current_chart.size() && !active_notes.full() &&
-                   LEAD_IN_FRAMES + current_chart[next_chart_index].beat * FRAMES_PER_BEAT - frame <= APPROACH_FRAMES)
+                   lead_in_frames + current_chart[next_chart_index].beat * frames_per_beat - frame <= approach_frames)
             {
                 const chart_note& note = current_chart[next_chart_index];
                 active_note active{};
                 active.chart_index = next_chart_index;
                 active.ln = note.ln;
                 active.type = note.type;
-                active.hit_frame = LEAD_IN_FRAMES + note.beat * FRAMES_PER_BEAT;
-                active.hold_end_frame = active.hit_frame + note.hold_beats * FRAMES_PER_BEAT;
+                active.hit_frame = lead_in_frames + note.beat * frames_per_beat;
+                active.hold_end_frame = active.hit_frame + note.hold_beats * frames_per_beat;
                 const bn::sprite_item& enemy_item = note.type == enemy_type::heart
                         ? bn::sprite_items::heart_pickup
                         : lane_sprite_item(note.ln, SONG_LIST[selected_song_index].enemy_set);
@@ -1109,7 +1114,7 @@ int main()
 
             // Paso de animación a medio beat: todos los enemigos (y el héroe
             // en reposo) marchan sincronizados con la música.
-            int anim_step = (frame * 2 / FRAMES_PER_BEAT) % 2;
+            int anim_step = (frame * 2 / frames_per_beat) % 2;
 
             // Reloj de juicio con el ajuste de latencia de CONFIGURACION:
             // solo afecta cuándo se juzgan los golpes, no los visuales.
@@ -1148,7 +1153,7 @@ int main()
                     continue;
                 }
 
-                bn::fixed progress = bn::fixed(diff_frames) / APPROACH_FRAMES;
+                bn::fixed progress = bn::fixed(diff_frames) / approach_frames;
                 if (progress < 0)
                 {
                     progress = 0;
@@ -1277,7 +1282,7 @@ int main()
             {
                 euphoria_meter = 0;
                 euphoria_active = true;
-                euphoria_ends_frame = frame + EUPHORIA_FRAMES;
+                euphoria_ends_frame = frame + frames_per_beat * EUPHORIA_BEATS;
             }
 
             if (hp <= 0)
@@ -1420,7 +1425,7 @@ int main()
         // la euforia lo deja con brillo extra sostenido.
         if (phase == game_phase::playing)
         {
-            int since_beat = frame % FRAMES_PER_BEAT;
+            int since_beat = frame % frames_per_beat;
             bn::fixed brightness = since_beat < 6 ? bn::fixed(6 - since_beat) / 40 : bn::fixed(0);
             if (euphoria_active)
             {
@@ -1460,10 +1465,10 @@ int main()
         {
             // En reposo marcha en el lugar a medio beat; jugando, además da
             // un saltito que decae en cada bombo (mismo pulso que el brillo).
-            hero_sprite.set_item(*hero_item, (frame * 2 / FRAMES_PER_BEAT) % 2);
+            hero_sprite.set_item(*hero_item, (frame * 2 / frames_per_beat) % 2);
             if (phase == game_phase::playing || phase == game_phase::paused)
             {
-                int since_beat = frame % FRAMES_PER_BEAT;
+                int since_beat = frame % frames_per_beat;
                 bn::fixed bob = since_beat < 6 ? bn::fixed(6 - since_beat) / 3 : bn::fixed(0);
                 hero_sprite.set_position(0, -bob);
             }
