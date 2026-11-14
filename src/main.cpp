@@ -608,23 +608,24 @@ int main()
         }
 
         difficulty_line.clear();
-        text_generator.generate(-56, 28, "<", difficulty_line);
-        // El nombre lleva el código de colores clásico de los juegos de
-        // ritmo (verde/amarillo/rojo/violeta) con una sombra oscura a
-        // 1px: el color solo no se distinguía sobre la tarjeta.
+        // El nombre va en blanco pleno: el texto coloreado no se leía en
+        // la pantalla de la SP ni con sombra. El código de colores
+        // (verde/amarillo/rojo/violeta) vive en las flechas < >, que no
+        // hay que leer — solo ver su color — con sombra para que recorte.
         text_generator.set_palette_item(OUTLINE_TEXT_PALETTE);
-        text_generator.generate(-39, 29, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
+        text_generator.generate(-55, 29, "<", difficulty_line);
+        text_generator.generate(57, 29, ">", difficulty_line);
         int shadow_end = difficulty_line.size();
         text_generator.set_palette_item(DIFFICULTY_PALETTES[menu_difficulty]);
-        text_generator.generate(-40, 28, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
-        text_generator.set_palette_item(default_text_palette);
-        // La sombra queda detrás del texto coloreado (z mayor = más atrás).
-        for (int s = 1; s < shadow_end; ++s)
-        {
-            difficulty_line[s].set_z_order(1);
-        }
-        // 56 y no 32: "MUY DIFÍCIL" es más largo que los otros nombres.
+        text_generator.generate(-56, 28, "<", difficulty_line);
         text_generator.generate(56, 28, ">", difficulty_line);
+        text_generator.set_palette_item(default_text_palette);
+        for (int s = 0; s < shadow_end; ++s)
+        {
+            difficulty_line[s].set_z_order(1); // sombras detrás
+        }
+        // Las flechas van en 56/-56: "MUY DIFÍCIL" es largo.
+        text_generator.generate(-40, 28, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
 
         record_line.clear();
         bn::string<24> record_str;
