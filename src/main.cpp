@@ -14,6 +14,10 @@
 #include "bn_string.h"
 #include "bn_sprite_ptr.h"
 #include "bn_sprite_palette_ptr.h"
+#include "bn_sprite_palette_item.h"
+#include "bn_array.h"
+#include "bn_span.h"
+#include "bn_bpp_mode.h"
 #include "bn_regular_bg_ptr.h"
 #include "bn_sprite_text_generator.h"
 #include "bn_music.h"
@@ -87,6 +91,38 @@ namespace
 
     // Rango por precisión al terminar una canción (0 = sin rango guardado).
     constexpr const char* RANK_NAMES[] = { "", "C", "B", "A", "S" };
+
+    // Paletas alternativas para el texto (todas las letras comparten la
+    // paleta de la fuente, pero el generador puede cambiarla por línea):
+    // una atenuada para opciones no seleccionadas y una por dificultad.
+    constexpr bn::array<bn::color, 16> solid_text_colors(bn::color wanted)
+    {
+        bn::array<bn::color, 16> colors = {};
+        for (bn::color& entry : colors)
+        {
+            entry = wanted;
+        }
+        return colors;
+    }
+
+    constexpr bn::array<bn::color, 16> DIM_TEXT_COLORS = solid_text_colors(bn::color(13, 12, 18));
+    constexpr bn::sprite_palette_item DIM_TEXT_PALETTE(
+            bn::span<const bn::color>(DIM_TEXT_COLORS), bn::bpp_mode::BPP_4);
+
+    // Código de colores clásico: verde fácil, amarillo normal, rojo
+    // difícil, violeta muy difícil.
+    constexpr bn::array<bn::color, 16> DIFF_TEXT_COLORS[] = {
+        solid_text_colors(bn::color(9, 28, 13)),
+        solid_text_colors(bn::color(31, 26, 8)),
+        solid_text_colors(bn::color(31, 11, 9)),
+        solid_text_colors(bn::color(24, 13, 31)),
+    };
+    constexpr bn::sprite_palette_item DIFFICULTY_PALETTES[] = {
+        bn::sprite_palette_item(bn::span<const bn::color>(DIFF_TEXT_COLORS[0]), bn::bpp_mode::BPP_4),
+        bn::sprite_palette_item(bn::span<const bn::color>(DIFF_TEXT_COLORS[1]), bn::bpp_mode::BPP_4),
+        bn::sprite_palette_item(bn::span<const bn::color>(DIFF_TEXT_COLORS[2]), bn::bpp_mode::BPP_4),
+        bn::sprite_palette_item(bn::span<const bn::color>(DIFF_TEXT_COLORS[3]), bn::bpp_mode::BPP_4),
+    };
     constexpr int JUDGEMENT_FRAMES = 24;
 
     struct song_info
@@ -342,6 +378,7 @@ int main()
     };
 
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
+    const bn::sprite_palette_item default_text_palette = text_generator.palette_item();
 
     bn::sprite_ptr hero_sprite = bn::sprite_items::hero.create_sprite(0, 0);
     // Héroe de la canción elegida (ninja o elfo); reset_game() lo actualiza.
@@ -392,6 +429,11 @@ int main()
         bn::sprite_ptr sprite;
         bn::fixed speed;
     };
+    // Mini-ícono temático junto a la canción seleccionada: el volador del
+    // set de enemigos de su zona, animado (estilo Rhythm Tengoku).
+    bn::sprite_ptr zone_icon = bn::sprite_items::enemy_bat.create_sprite(72, -40);
+    zone_icon.set_visible(false);
+
     bn::vector<dust_mote, 6> motes;
     {
         constexpr bn::fixed MOTE_X[] = { -96, -58, -20, 24, 63, 98 };
@@ -425,10 +467,13 @@ int main()
             main_menu_line[k].clear();
             bn::fixed y = -10 + k * 18;
             // La opción elegida la marca la tarjeta de cursor; el texto
-            // seleccionado se corre un pelo, como las tarjetas de osu.
+            // seleccionado se corre un pelo y el resto queda atenuado.
+            text_generator.set_palette_item(k == main_menu_cursor
+                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == main_menu_cursor ? -38 : -42, y,
                     MAIN_MENU_OPTIONS[k], main_menu_line[k]);
         }
+        text_generator.set_palette_item(default_text_palette);
 
         title_line2.clear();
         text_generator.generate(-56, 66, "START PARA ELEGIR", title_line2);
@@ -544,16 +589,23 @@ int main()
             int k = menu_scroll + i;
             bn::fixed y = -40 + i * 16;
             // La canción elegida la marca la tarjeta de cursor; su nombre
-            // se corre un pelo, como las tarjetas de osu. Las bloqueadas
+            // se corre un pelo y el resto queda atenuado. Las bloqueadas
             // son un misterio.
             const char* row_name = song_unlocked(k, 0) ? SONG_LIST[k].name : "???";
+            text_generator.set_palette_item(k == menu_song
+                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == menu_song ? -54 : -60, y, row_name, menu_line[i]);
         }
+        text_generator.set_palette_item(default_text_palette);
 
         difficulty_line.clear();
         text_generator.generate(-56, 28, "<", difficulty_line);
+        // El nombre lleva el código de colores clásico de los juegos de
+        // ritmo: verde/amarillo/rojo/violeta según el desafío.
+        text_generator.set_palette_item(DIFFICULTY_PALETTES[menu_difficulty]);
         text_generator.generate(-40, 28, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
-        // 56 y no 32: "MUY DIFICIL" es más largo que los otros nombres.
+        text_generator.set_palette_item(default_text_palette);
+        // 56 y no 32: "MUY DIFÍCIL" es más largo que los otros nombres.
         text_generator.generate(56, 28, ">", difficulty_line);
 
         record_line.clear();
@@ -616,9 +668,12 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
+            text_generator.set_palette_item(k == ended_cursor
+                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == ended_cursor ? -38 : -42, y,
                     ENDED_OPTIONS[k], ended_line[k]);
         }
+        text_generator.set_palette_item(default_text_palette);
     };
 
     // El menú de pausa reusa ended_line/ended_cursor (fases disjuntas).
@@ -628,9 +683,12 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
+            text_generator.set_palette_item(k == ended_cursor
+                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == ended_cursor ? -38 : -42, y,
                     PAUSE_OPTIONS[k], ended_line[k]);
         }
+        text_generator.set_palette_item(default_text_palette);
     };
 
     bn::vector<bn::sprite_ptr, 16> score_text;
@@ -1589,6 +1647,22 @@ int main()
                 blink = blink < 32 ? blink : 64 - blink;
                 bn::bg_palette_ptr cursor_palette = cursor_bg.palette();
                 cursor_palette.set_fade(bn::colors::white, bn::fixed(blink) / 220);
+            }
+        }
+
+        // Mini-ícono de zona junto a la canción seleccionada: aletea al
+        // tempo del tema de menú; las bloqueadas no revelan su bicho.
+        {
+            bool icon_visible = phase == game_phase::song_select && song_unlocked(menu_song, 0);
+            zone_icon.set_visible(icon_visible);
+            if (icon_visible)
+            {
+                const bn::sprite_item& icon_item =
+                        *ENEMY_SETS[SONG_LIST[menu_song].enemy_set][0];
+                zone_icon.set_item(icon_item, (frame * 2 / 29) % 2);
+                zone_icon.set_position(72, -40 + (menu_song - menu_scroll) * 16);
+                bn::sprite_palette_ptr icon_palette = zone_icon.palette();
+                icon_palette.set_fade_intensity(0); // sin tintes heredados del juego
             }
         }
 
