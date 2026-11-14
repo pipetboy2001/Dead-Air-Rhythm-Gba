@@ -44,6 +44,7 @@
 #include "bn_sprite_items_hero_elf.h"
 #include "bn_sprite_items_heart_pickup.h"
 #include "bn_sprite_items_spark.h"
+#include "bn_sprite_items_mote.h"
 
 #include "common_variable_8x16_sprite_font.h"
 
@@ -127,16 +128,16 @@ namespace
     // arriba de lo elegido (DIFICIL usa el chart especial difficulty::boss).
     constexpr int BOSS_SONG_INDEX = SONG_LIST_COUNT - 1;
 
-    constexpr const char* DIFFICULTY_NAMES[] = { "FACIL", "NORMAL", "DIFICIL", "MUY DIFICIL" };
+    constexpr const char* DIFFICULTY_NAMES[] = { "FÁCIL", "NORMAL", "DIFÍCIL", "MUY DIFÍCIL" };
     constexpr int DIFFICULTY_COUNT = sizeof(DIFFICULTY_NAMES) / sizeof(DIFFICULTY_NAMES[0]);
 
-    constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENU" };
+    constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENÚ" };
     constexpr int ENDED_OPTION_COUNT = sizeof(ENDED_OPTIONS) / sizeof(ENDED_OPTIONS[0]);
 
     constexpr const char* PAUSE_OPTIONS[] = { "CONTINUAR", "SALIR" };
     constexpr int PAUSE_OPTION_COUNT = sizeof(PAUSE_OPTIONS) / sizeof(PAUSE_OPTIONS[0]);
 
-    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "COMO JUGAR", "CONFIGURACION", "CREDITOS" };
+    constexpr const char* MAIN_MENU_OPTIONS[] = { "JUGAR", "CÓMO JUGAR", "CONFIGURACIÓN", "CRÉDITOS" };
     constexpr int MAIN_MENU_OPTION_COUNT = sizeof(MAIN_MENU_OPTIONS) / sizeof(MAIN_MENU_OPTIONS[0]);
 
     constexpr const char* HELP_LINES[] = {
@@ -145,7 +146,7 @@ namespace
         "FILA DE 3: TOCA LA",
         "CRUCETA 3 VECES",
         "EUFORIA LLENA: A = X2",
-        "CORAZON: PEGALE Y CURA",
+        "CORAZÓN: PÉGALE Y CURA",
         "START PAUSA EL JUEGO",
         "PSST: KONAMI",
         "B PARA VOLVER",
@@ -153,7 +154,7 @@ namespace
     constexpr int HELP_LINE_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
 
     constexpr const char* CREDITS_LINES[] = {
-        "MUSICA: SPRING+VINSCOOL",
+        "MÚSICA: SPRING+VINSCOOL",
         "(OPENGAMEART, CC0)",
         "ARTE: TOADZILLART",
         "(ITCH.IO)",
@@ -384,6 +385,25 @@ int main()
     cursor_bg.set_z_order(-3);
     bn::fixed cursor_card_y = -10;
 
+    // Motas de polvo de la caverna: flotan lento hacia arriba en la
+    // pantalla de título para que el fondo no se sienta estático.
+    struct dust_mote
+    {
+        bn::sprite_ptr sprite;
+        bn::fixed speed;
+    };
+    bn::vector<dust_mote, 6> motes;
+    {
+        constexpr bn::fixed MOTE_X[] = { -96, -58, -20, 24, 63, 98 };
+        constexpr bn::fixed MOTE_Y[] = { 30, -52, 68, -10, 48, -70 };
+        constexpr bn::fixed MOTE_SPEED[] = { 0.12, 0.2, 0.16, 0.26, 0.1, 0.22 };
+        for (int i = 0; i < 6; ++i)
+        {
+            motes.push_back({ bn::sprite_items::mote.create_sprite(MOTE_X[i], MOTE_Y[i]),
+                              MOTE_SPEED[i] });
+        }
+    }
+
     bn::vector<bn::sprite_ptr, 20> title_line1;
     bn::vector<bn::sprite_ptr, 24> title_line2;
 
@@ -544,7 +564,7 @@ int main()
         }
         else
         {
-            record_str = "RECORD ";
+            record_str = "RÉCORD ";
             record_str.append(bn::to_string<10>(save.high_scores[menu_song][menu_difficulty]));
             int saved_rank = save.ranks[menu_song][menu_difficulty];
             if (saved_rank > 0)
@@ -1408,13 +1428,13 @@ int main()
                 bool new_record = save_results(false, 0, false);
                 message_text.clear();
                 text_generator.generate(-48, -28, "GAME OVER", message_text);
-                bn::string<20> acc_line = "PRECISION ";
+                bn::string<20> acc_line = "PRECISIÓN ";
                 acc_line.append(bn::to_string<4>(accuracy_percent()));
                 acc_line.append("%");
                 text_generator.generate(-48, -10, acc_line, message_text);
                 if (new_record)
                 {
-                    text_generator.generate(-56, 8, "NUEVO RECORD", message_text);
+                    text_generator.generate(-56, 8, "NUEVO RÉCORD", message_text);
                 }
                 ended_cursor = 0;
                 draw_ended_menu();
@@ -1436,13 +1456,13 @@ int main()
                     rank_line.append(" *"); // estrella de full combo
                 }
                 text_generator.generate(-32, -10, rank_line, message_text);
-                bn::string<20> acc_line = "PRECISION ";
+                bn::string<20> acc_line = "PRECISIÓN ";
                 acc_line.append(bn::to_string<4>(accuracy));
                 acc_line.append("%");
                 text_generator.generate(-48, 8, acc_line, message_text);
                 if (new_record)
                 {
-                    text_generator.generate(-56, 26, "NUEVO RECORD", message_text);
+                    text_generator.generate(-56, 26, "NUEVO RÉCORD", message_text);
                 }
                 ended_cursor = 0;
                 draw_ended_menu();
@@ -1562,6 +1582,31 @@ int main()
                     cursor_card_y += delta / 3;
                 }
                 cursor_bg.set_position(0, cursor_card_y);
+
+                // Respiración sutil de la tarjeta: nunca hay duda de dónde
+                // está el cursor, sin llegar a molestar.
+                int blink = frame % 64;
+                blink = blink < 32 ? blink : 64 - blink;
+                bn::bg_palette_ptr cursor_palette = cursor_bg.palette();
+                cursor_palette.set_fade(bn::colors::white, bn::fixed(blink) / 220);
+            }
+        }
+
+        // Motas de polvo solo en la pantalla de título.
+        {
+            bool motes_visible = phase == game_phase::main_menu;
+            for (dust_mote& mote : motes)
+            {
+                mote.sprite.set_visible(motes_visible);
+                if (motes_visible)
+                {
+                    bn::fixed y = mote.sprite.y() - mote.speed;
+                    if (y < -84)
+                    {
+                        y = 84; // reaparece abajo, deriva eterna
+                    }
+                    mote.sprite.set_y(y);
+                }
             }
         }
 
@@ -1586,6 +1631,16 @@ int main()
                 brightness += bn::fixed(0.08);
             }
             bn::bg_palettes::set_brightness(brightness);
+        }
+        else if (phase == game_phase::main_menu || phase == game_phase::song_select
+                || phase == game_phase::credits || phase == game_phase::how_to_play
+                || phase == game_phase::settings)
+        {
+            // Pulso muy sutil también en los menús (la música sigue sonando):
+            // la tarjeta y sus barritas de colores laten con el tema.
+            int since_beat = frame % 29; // tempo del tema de menú (battle)
+            bn::fixed menu_pulse = since_beat < 6 ? bn::fixed(6 - since_beat) / 120 : bn::fixed(0);
+            bn::bg_palettes::set_brightness(menu_pulse);
         }
         else
         {

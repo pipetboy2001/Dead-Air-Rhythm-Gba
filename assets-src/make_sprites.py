@@ -109,9 +109,28 @@ def make_spark():
     return out, palette
 
 
+def make_mote():
+    """Mota de polvo 8x8 para la pantalla de titulo: puntito tenue con
+    halo, flota lento para que la caverna no se sienta estatica."""
+    palette = [TRANSPARENT, (0x6B, 0x5F, 0x8E), (0xA9, 0x9D, 0xCC)]
+    out = Image.new("P", (8, 8))
+    pixels = [0] * 64
+    for x, y in ((3, 3), (4, 3), (3, 4), (4, 4)):
+        pixels[y * 8 + x] = 2
+    for x, y in ((3, 2), (4, 2), (2, 3), (5, 4), (3, 5), (4, 5), (2, 4), (5, 3)):
+        pixels[y * 8 + x] = 1
+    out.putdata(pixels)
+    out.putpalette([c for rgb in palette for c in rgb] + [0] * (768 - 9))
+    out.save(OUT / "mote.bmp")
+    (OUT / "mote.json").write_text('{\n    "type": "sprite",\n\t"height": 8\n}\n')
+    print("mote: 1 frame, 3 colores")
+    return out, palette
+
+
 def main():
     results = [convert(*spec) for spec in SPRITES]
     results.append(make_spark())
+    results.append(make_mote())
 
     # Preview ampliada para revisar los frames elegidos.
     Z = 6
