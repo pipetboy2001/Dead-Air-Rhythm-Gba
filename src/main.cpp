@@ -534,7 +534,7 @@ int main()
         bn::string<24> record_str;
         if (!song_unlocked(menu_song, menu_difficulty))
         {
-            record_str = "BLOQUEADA";
+            record_str = "???";
         }
         else
         {
