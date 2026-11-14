@@ -106,6 +106,11 @@ namespace
         return colors;
     }
 
+    // Sombra casi negra para que el texto coloreado se lea sobre la tarjeta.
+    constexpr bn::array<bn::color, 16> OUTLINE_TEXT_COLORS = solid_text_colors(bn::color(2, 2, 4));
+    constexpr bn::sprite_palette_item OUTLINE_TEXT_PALETTE(
+            bn::span<const bn::color>(OUTLINE_TEXT_COLORS), bn::bpp_mode::BPP_4);
+
     // Código de colores clásico: verde fácil, amarillo normal, rojo
     // difícil, violeta muy difícil.
     constexpr bn::array<bn::color, 16> DIFF_TEXT_COLORS[] = {
@@ -564,7 +569,7 @@ int main()
     };
 
     bn::vector<bn::sprite_ptr, 20> menu_line[VISIBLE_SONGS];
-    bn::vector<bn::sprite_ptr, 20> difficulty_line;
+    bn::vector<bn::sprite_ptr, 32> difficulty_line;
     bn::vector<bn::sprite_ptr, 24> record_line;
     int menu_song = 0;
     int menu_difficulty = 1;
@@ -605,10 +610,19 @@ int main()
         difficulty_line.clear();
         text_generator.generate(-56, 28, "<", difficulty_line);
         // El nombre lleva el código de colores clásico de los juegos de
-        // ritmo: verde/amarillo/rojo/violeta según el desafío.
+        // ritmo (verde/amarillo/rojo/violeta) con una sombra oscura a
+        // 1px: el color solo no se distinguía sobre la tarjeta.
+        text_generator.set_palette_item(OUTLINE_TEXT_PALETTE);
+        text_generator.generate(-39, 29, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
+        int shadow_end = difficulty_line.size();
         text_generator.set_palette_item(DIFFICULTY_PALETTES[menu_difficulty]);
         text_generator.generate(-40, 28, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
         text_generator.set_palette_item(default_text_palette);
+        // La sombra queda detrás del texto coloreado (z mayor = más atrás).
+        for (int s = 1; s < shadow_end; ++s)
+        {
+            difficulty_line[s].set_z_order(1);
+        }
         // 56 y no 32: "MUY DIFÍCIL" es más largo que los otros nombres.
         text_generator.generate(56, 28, ">", difficulty_line);
 
