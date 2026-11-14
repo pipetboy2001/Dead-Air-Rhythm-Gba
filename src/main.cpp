@@ -68,8 +68,8 @@ namespace
     constexpr int EUPHORIA_BAR_SEGMENTS = 10;
     constexpr int EUPHORIA_FRAMES = FRAMES_PER_BEAT * 16;
     // Penalización de euforia por fallo, por dificultad (FACIL/NORMAL/
-    // DIFICIL): 40 parejo se sentía castigador en consola real.
-    constexpr int MISS_EUPHORIA_PENALTY[] = { 10, 20, 30 };
+    // DIFICIL/MUY DIFICIL): 40 parejo se sentía castigador en consola real.
+    constexpr int MISS_EUPHORIA_PENALTY[] = { 10, 20, 30, 40 };
     constexpr bn::fixed HIT_DISTANCE = 40;
 
     struct score_tier
@@ -128,7 +128,7 @@ namespace
     // arriba de lo elegido (DIFICIL usa el chart especial difficulty::boss).
     constexpr int BOSS_SONG_INDEX = SONG_LIST_COUNT - 1;
 
-    constexpr const char* DIFFICULTY_NAMES[] = { "FACIL", "NORMAL", "DIFICIL" };
+    constexpr const char* DIFFICULTY_NAMES[] = { "FACIL", "NORMAL", "DIFICIL", "MUY DIFICIL" };
     constexpr int DIFFICULTY_COUNT = sizeof(DIFFICULTY_NAMES) / sizeof(DIFFICULTY_NAMES[0]);
 
     constexpr const char* ENDED_OPTIONS[] = { "REINTENTAR", "MENU" };
@@ -167,9 +167,9 @@ namespace
     // Récord por canción y dificultad, persistido en SRAM. magic detecta la
     // primera vez que corre el juego en un cartucho/batería nueva (SRAM sin
     // inicializar, basura de fábrica) para no mostrar un récord falso.
-    // 53: se sumó latency al layout — el magic nuevo descarta saves con
-    // layouts viejos (igual que en los cambios anteriores).
-    constexpr int SAVE_MAGIC = 0x474F4C53;
+    // 54: DIFFICULTY_COUNT pasó de 3 a 4 (MUY DIFICIL) y eso corre todo
+    // el layout — el magic nuevo descarta saves viejos.
+    constexpr int SAVE_MAGIC = 0x474F4C54;
 
     // Tope del ajuste de latencia, en frames (~17 ms cada uno).
     constexpr int LATENCY_LIMIT = 15;
@@ -316,16 +316,18 @@ int main()
     bn::vector<chart_note, CHART_MAX_NOTES> facil_chart;
     bn::vector<chart_note, CHART_MAX_NOTES> normal_chart;
     bn::vector<chart_note, CHART_MAX_NOTES> dificil_chart;
+    bn::vector<chart_note, CHART_MAX_NOTES> muy_dificil_chart;
     bn::vector<chart_note, CHART_MAX_NOTES> boss_chart;
     build_chart(difficulty::facil, facil_chart);
     build_chart(difficulty::normal, normal_chart);
     build_chart(difficulty::dificil, dificil_chart);
+    build_chart(difficulty::muy_dificil, muy_dificil_chart);
     build_chart(difficulty::boss, boss_chart);
 
     const auto chart_for = [&](int song_index, int diff_index) -> const bn::ivector<chart_note>&
     {
-        // El BOSS juega un escalón más arriba: FACIL usa el chart NORMAL,
-        // NORMAL el DIFICIL, y DIFICIL el chart especial de boss.
+        // El BOSS juega un escalón más arriba de lo elegido; en MUY
+        // DIFICIL usa el chart especial de boss.
         if (song_index == BOSS_SONG_INDEX)
         {
             ++diff_index;
@@ -341,6 +343,10 @@ int main()
         if (diff_index == 2)
         {
             return dificil_chart;
+        }
+        if (diff_index == 3)
+        {
+            return muy_dificil_chart;
         }
         return boss_chart;
     };
@@ -519,7 +525,8 @@ int main()
         difficulty_line.clear();
         text_generator.generate(-56, 28, "<", difficulty_line);
         text_generator.generate(-40, 28, DIFFICULTY_NAMES[menu_difficulty], difficulty_line);
-        text_generator.generate(32, 28, ">", difficulty_line);
+        // 56 y no 32: "MUY DIFICIL" es más largo que los otros nombres.
+        text_generator.generate(56, 28, ">", difficulty_line);
 
         record_line.clear();
         bn::string<24> record_str = "RECORD ";
