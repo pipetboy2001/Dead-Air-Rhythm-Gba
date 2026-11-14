@@ -316,6 +316,27 @@ int main()
     // semilla de canción+dificultad (cada combinación es única).
     bn::vector<chart_note, CHART_MAX_NOTES> current_chart;
 
+    // Desbloqueo de canciones: BATTLE siempre abierta; terminar una
+    // canción en una dificultad abre la siguiente en esa dificultad y
+    // todas las menores. No hace falta guardar nada nuevo: el rango en
+    // SRAM solo se escribe al terminar, así que ranks[s][d] > 0 ES la
+    // prueba de "pasada en d".
+    const auto song_unlocked = [&](int song, int diff)
+    {
+        if (song == 0)
+        {
+            return true;
+        }
+        for (int d = diff; d < DIFFICULTY_COUNT; ++d)
+        {
+            if (save.ranks[song - 1][d] > 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
 
     bn::sprite_ptr hero_sprite = bn::sprite_items::hero.create_sprite(0, 0);
@@ -471,6 +492,14 @@ int main()
     int menu_difficulty = 1;
     int menu_scroll = 0; // fila visible superior; el cursor lo necesita
 
+    // Preview en el selector: tras un pequeño debounce suena la canción
+    // resaltada unos 10 segundos y se vuelve al tema de menú.
+    constexpr int PREVIEW_DEBOUNCE = 30;
+    constexpr int PREVIEW_LENGTH = 600;
+    int preview_song = -1;      // -1 = está sonando el tema de menú
+    int preview_pending_at = 0; // 0 = nada programado
+    int preview_until = 0;
+
     const auto draw_menu = [&]()
     {
         menu_scroll = menu_song - VISIBLE_SONGS / 2;
@@ -489,9 +518,10 @@ int main()
             int k = menu_scroll + i;
             bn::fixed y = -40 + i * 16;
             // La canción elegida la marca la tarjeta de cursor; su nombre
-            // se corre un pelo, como las tarjetas de osu.
-            text_generator.generate(k == menu_song ? -54 : -60, y,
-                    SONG_LIST[k].name, menu_line[i]);
+            // se corre un pelo, como las tarjetas de osu. Las bloqueadas
+            // son un misterio.
+            const char* row_name = song_unlocked(k, 0) ? SONG_LIST[k].name : "???";
+            text_generator.generate(k == menu_song ? -54 : -60, y, row_name, menu_line[i]);
         }
 
         difficulty_line.clear();
@@ -501,17 +531,25 @@ int main()
         text_generator.generate(56, 28, ">", difficulty_line);
 
         record_line.clear();
-        bn::string<24> record_str = "RECORD ";
-        record_str.append(bn::to_string<10>(save.high_scores[menu_song][menu_difficulty]));
-        int saved_rank = save.ranks[menu_song][menu_difficulty];
-        if (saved_rank > 0)
+        bn::string<24> record_str;
+        if (!song_unlocked(menu_song, menu_difficulty))
         {
-            record_str.append(" ");
-            record_str.append(RANK_NAMES[saved_rank]);
+            record_str = "BLOQUEADA";
         }
-        if (save.stars[menu_song][menu_difficulty])
+        else
         {
-            record_str.append("*"); // estrella: full combo logrado
+            record_str = "RECORD ";
+            record_str.append(bn::to_string<10>(save.high_scores[menu_song][menu_difficulty]));
+            int saved_rank = save.ranks[menu_song][menu_difficulty];
+            if (saved_rank > 0)
+            {
+                record_str.append(" ");
+                record_str.append(RANK_NAMES[saved_rank]);
+            }
+            if (save.stars[menu_song][menu_difficulty])
+            {
+                record_str.append("*"); // estrella: full combo logrado
+            }
         }
         text_generator.generate(-56, 46, record_str, record_line);
 
@@ -858,6 +896,7 @@ int main()
                 {
                     draw_title();
                     draw_menu();
+                    preview_pending_at = frame + PREVIEW_DEBOUNCE;
                     phase = game_phase::song_select;
                 }
                 else
@@ -928,12 +967,14 @@ int main()
             if (bn::keypad::up_pressed())
             {
                 menu_song = (menu_song + SONG_LIST_COUNT - 1) % SONG_LIST_COUNT;
+                preview_pending_at = frame + PREVIEW_DEBOUNCE;
                 draw_menu();
                 bn::sound_items::sfx_menu_move.play();
             }
             else if (bn::keypad::down_pressed())
             {
                 menu_song = (menu_song + 1) % SONG_LIST_COUNT;
+                preview_pending_at = frame + PREVIEW_DEBOUNCE;
                 draw_menu();
                 bn::sound_items::sfx_menu_move.play();
             }
@@ -953,20 +994,62 @@ int main()
             {
                 clear_song_select();
                 title_line1.clear();
+                if (preview_song >= 0)
+                {
+                    play_menu_music();
+                    preview_song = -1;
+                }
+                preview_pending_at = 0;
                 draw_main_menu();
                 phase = game_phase::main_menu;
                 bn::sound_items::sfx_menu_select.play();
             }
             else if (bn::keypad::start_pressed() || bn::keypad::a_pressed())
             {
-                title_line1.clear();
-                title_line2.clear();
-                clear_song_select();
-                selected_song_index = menu_song;
-                selected_difficulty = menu_difficulty;
-                reset_game();
-                phase = game_phase::playing;
-                bn::sound_items::sfx_menu_select.play();
+                if (!song_unlocked(menu_song, menu_difficulty))
+                {
+                    // Bloqueada en esta dificultad: hay que ganársela.
+                    bn::sound_items::sfx_miss.play();
+                }
+                else
+                {
+                    title_line1.clear();
+                    title_line2.clear();
+                    clear_song_select();
+                    preview_song = -1;
+                    preview_pending_at = 0;
+                    selected_song_index = menu_song;
+                    selected_difficulty = menu_difficulty;
+                    reset_game();
+                    phase = game_phase::playing;
+                    bn::sound_items::sfx_menu_select.play();
+                }
+            }
+
+            // Preview: pasado el debounce suena la canción resaltada (si
+            // está desbloqueada) y a los ~10 segundos vuelve el tema de menú.
+            if (preview_pending_at != 0 && frame >= preview_pending_at)
+            {
+                preview_pending_at = 0;
+                if (song_unlocked(menu_song, 0))
+                {
+                    if (preview_song != menu_song)
+                    {
+                        bn::music::play(SONG_LIST[menu_song].music, 1, true);
+                        preview_song = menu_song;
+                    }
+                    preview_until = frame + PREVIEW_LENGTH;
+                }
+                else if (preview_song >= 0)
+                {
+                    play_menu_music();
+                    preview_song = -1;
+                }
+            }
+            if (preview_song >= 0 && frame >= preview_until)
+            {
+                play_menu_music();
+                preview_song = -1;
             }
         }
         else if (phase == game_phase::paused)
@@ -1011,6 +1094,7 @@ int main()
                 play_menu_music();
                 draw_title();
                 draw_menu();
+                preview_pending_at = frame + PREVIEW_DEBOUNCE;
                 phase = game_phase::song_select;
                 bn::sound_items::sfx_menu_select.play();
             }
@@ -1050,6 +1134,7 @@ int main()
                     euphoria_text.clear();
                     draw_title();
                     draw_menu();
+                    preview_pending_at = frame + PREVIEW_DEBOUNCE;
                     phase = game_phase::song_select;
                     play_menu_music();
                 }
