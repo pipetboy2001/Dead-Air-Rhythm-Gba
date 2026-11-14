@@ -93,8 +93,9 @@ namespace
     constexpr const char* RANK_NAMES[] = { "", "C", "B", "A", "S" };
 
     // Paletas alternativas para el texto (todas las letras comparten la
-    // paleta de la fuente, pero el generador puede cambiarla por línea):
-    // una atenuada para opciones no seleccionadas y una por dificultad.
+    // paleta de la fuente, pero el generador puede cambiarla por línea).
+    // shortcut: se probó atenuar las opciones no seleccionadas con una de
+    // estas y en la pantalla de la SP casi no se leían — no repetir.
     constexpr bn::array<bn::color, 16> solid_text_colors(bn::color wanted)
     {
         bn::array<bn::color, 16> colors = {};
@@ -104,10 +105,6 @@ namespace
         }
         return colors;
     }
-
-    constexpr bn::array<bn::color, 16> DIM_TEXT_COLORS = solid_text_colors(bn::color(13, 12, 18));
-    constexpr bn::sprite_palette_item DIM_TEXT_PALETTE(
-            bn::span<const bn::color>(DIM_TEXT_COLORS), bn::bpp_mode::BPP_4);
 
     // Código de colores clásico: verde fácil, amarillo normal, rojo
     // difícil, violeta muy difícil.
@@ -254,6 +251,19 @@ namespace
     constexpr const bn::sprite_item* HEROES[] = {
         &bn::sprite_items::hero,
         &bn::sprite_items::hero_elf,
+    };
+
+    // Mascota del selector: un enemigo distinto por canción (hay justo 9).
+    constexpr const bn::sprite_item* SONG_ICONS[] = {
+        &bn::sprite_items::enemy_bat,          // BATTLE
+        &bn::sprite_items::enemy_goblin,       // DOGGO
+        &bn::sprite_items::enemy_slime,        // PUPPYLAND
+        &bn::sprite_items::enemy_fly,          // FOREST
+        &bn::sprite_items::enemy_rat,          // GLIMMER
+        &bn::sprite_items::enemy_ghost,        // HIDEOUT
+        &bn::sprite_items::enemy_skeleton,     // PRISON
+        &bn::sprite_items::enemy_spider,       // VICTORY
+        &bn::sprite_items::enemy_flying_skull, // BOSS
     };
 
     const bn::sprite_item& lane_sprite_item(lane ln, int enemy_set)
@@ -467,13 +477,10 @@ int main()
             main_menu_line[k].clear();
             bn::fixed y = -10 + k * 18;
             // La opción elegida la marca la tarjeta de cursor; el texto
-            // seleccionado se corre un pelo y el resto queda atenuado.
-            text_generator.set_palette_item(k == main_menu_cursor
-                    ? default_text_palette : DIM_TEXT_PALETTE);
+            // seleccionado se corre un pelo, como las tarjetas de osu.
             text_generator.generate(k == main_menu_cursor ? -38 : -42, y,
                     MAIN_MENU_OPTIONS[k], main_menu_line[k]);
         }
-        text_generator.set_palette_item(default_text_palette);
 
         title_line2.clear();
         text_generator.generate(-56, 66, "START PARA ELEGIR", title_line2);
@@ -592,11 +599,8 @@ int main()
             // se corre un pelo y el resto queda atenuado. Las bloqueadas
             // son un misterio.
             const char* row_name = song_unlocked(k, 0) ? SONG_LIST[k].name : "???";
-            text_generator.set_palette_item(k == menu_song
-                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == menu_song ? -54 : -60, y, row_name, menu_line[i]);
         }
-        text_generator.set_palette_item(default_text_palette);
 
         difficulty_line.clear();
         text_generator.generate(-56, 28, "<", difficulty_line);
@@ -668,12 +672,9 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
-            text_generator.set_palette_item(k == ended_cursor
-                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == ended_cursor ? -38 : -42, y,
                     ENDED_OPTIONS[k], ended_line[k]);
         }
-        text_generator.set_palette_item(default_text_palette);
     };
 
     // El menú de pausa reusa ended_line/ended_cursor (fases disjuntas).
@@ -683,12 +684,9 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
-            text_generator.set_palette_item(k == ended_cursor
-                    ? default_text_palette : DIM_TEXT_PALETTE);
             text_generator.generate(k == ended_cursor ? -38 : -42, y,
                     PAUSE_OPTIONS[k], ended_line[k]);
         }
-        text_generator.set_palette_item(default_text_palette);
     };
 
     bn::vector<bn::sprite_ptr, 16> score_text;
@@ -1650,15 +1648,25 @@ int main()
             }
         }
 
-        // Mini-ícono de zona junto a la canción seleccionada: aletea al
-        // tempo del tema de menú; las bloqueadas no revelan su bicho.
+        // En el selector de canciones el héroe-mascota estorba: la estrella
+        // ahí es el bicho de cada canción.
+        if (phase == game_phase::song_select)
+        {
+            hero_sprite.set_visible(false);
+        }
+        else if (phase != game_phase::paused) // la pausa maneja lo suyo
+        {
+            hero_sprite.set_visible(true);
+        }
+
+        // Mini-ícono junto a la canción seleccionada: aletea al tempo del
+        // tema de menú; las bloqueadas no revelan su bicho.
         {
             bool icon_visible = phase == game_phase::song_select && song_unlocked(menu_song, 0);
             zone_icon.set_visible(icon_visible);
             if (icon_visible)
             {
-                const bn::sprite_item& icon_item =
-                        *ENEMY_SETS[SONG_LIST[menu_song].enemy_set][0];
+                const bn::sprite_item& icon_item = *SONG_ICONS[menu_song];
                 zone_icon.set_item(icon_item, (frame * 2 / 29) % 2);
                 zone_icon.set_position(72, -40 + (menu_song - menu_scroll) * 16);
                 bn::sprite_palette_ptr icon_palette = zone_icon.palette();
