@@ -49,6 +49,8 @@
 #include "bn_sprite_items_heart_pickup.h"
 #include "bn_sprite_items_spark.h"
 #include "bn_sprite_items_mote.h"
+#include "bn_sprite_items_hit_flash.h"
+#include "bn_sprite_items_meter_seg.h"
 
 #include "common_variable_8x16_sprite_font.h"
 
@@ -706,7 +708,29 @@ int main()
 
     bn::vector<bn::sprite_ptr, 16> score_text;
     bn::vector<bn::sprite_ptr, 8> combo_text;
-    bn::vector<bn::sprite_ptr, 10> euphoria_text;
+
+    // Medidor de euforia pixel-art: 10 segmentos con frame vacío/lleno.
+    bn::vector<bn::sprite_ptr, EUPHORIA_BAR_SEGMENTS> euphoria_meter_sprites;
+    for (int i = 0; i < EUPHORIA_BAR_SEGMENTS; ++i)
+    {
+        euphoria_meter_sprites.push_back(
+                bn::sprite_items::meter_seg.create_sprite(-36 + i * 8, -58));
+        euphoria_meter_sprites.back().set_visible(false);
+    }
+
+    // Destello del anillo al presionar un carril (acierte o no): el arco
+    // responde al botón, el golpe se siente.
+    bn::vector<bn::sprite_ptr, 4> lane_flash;
+    int lane_flash_until[4] = { 0, 0, 0, 0 };
+    {
+        constexpr lane FLASH_LANES[] = { lane::up, lane::down, lane::left, lane::right };
+        for (lane ln : FLASH_LANES)
+        {
+            lane_flash.push_back(bn::sprite_items::hit_flash.create_sprite(
+                    lane_direction(ln) * HIT_DISTANCE));
+            lane_flash.back().set_visible(false);
+        }
+    }
 
     // Corazones de HP: sprites fijos (se crean una sola vez), se tiñen
     // según cuántos quedan en vez de regenerar texto cada vez.
@@ -796,13 +820,17 @@ int main()
 
     int shown_score = -1;
     int shown_combo = -1;
-    int shown_euphoria = -1;
 
     const auto reset_game = [&]()
     {
         active_notes.clear();
         dying_enemies.clear();
         sparks.clear();
+        for (int f = 0; f < 4; ++f)
+        {
+            lane_flash[f].set_visible(false);
+            lane_flash_until[f] = 0;
+        }
         shake_until = 0;
         frame = 0;
         next_chart_index = 0;
@@ -836,10 +864,8 @@ int main()
         reset_palette.set_fade_intensity(0);
         shown_score = -1;
         shown_combo = -1;
-        shown_euphoria = -1;
         score_text.clear();
         combo_text.clear();
-        euphoria_text.clear();
         bn::music::play(SONG_LIST[selected_song_index].music, 1, true);
     };
 
@@ -1226,7 +1252,6 @@ int main()
                 sparks.clear();
                 score_text.clear();
                 combo_text.clear();
-                euphoria_text.clear();
                 hero_sprite.set_visible(true); // en los menús se ve de mascota
                 bn::music::resume();
                 play_menu_music();
@@ -1269,7 +1294,6 @@ int main()
                 {
                     score_text.clear();
                     combo_text.clear();
-                    euphoria_text.clear();
                     draw_title();
                     draw_menu();
                     preview_pending_at = frame + PREVIEW_DEBOUNCE;
@@ -1398,6 +1422,10 @@ int main()
                 {
                     continue;
                 }
+
+                // El arco responde al botón aunque no haya nada que pegar.
+                lane_flash[int(ln)].set_visible(true);
+                lane_flash_until[int(ln)] = frame + 6;
 
                 int best_index = -1;
                 int best_diff = MISS_FRAMES + 1;
@@ -1549,6 +1577,11 @@ int main()
                 set_battle_sprites_visible(false);
                 dying_enemies.clear();
                 sparks.clear();
+                for (int f = 0; f < 4; ++f)
+                {
+                    lane_flash[f].set_visible(false);
+                    lane_flash_until[f] = 0;
+                }
                 judgement_text.clear();
                 message_text.clear();
                 text_generator.generate(-24, -28, "PAUSA", message_text);
@@ -1837,16 +1870,11 @@ int main()
                 heart_sprites[i].set_visible(i < hp);
             }
 
-            if (euphoria_meter != shown_euphoria)
+            int filled = euphoria_meter * EUPHORIA_BAR_SEGMENTS / EUPHORIA_MAX;
+            for (int i = 0; i < EUPHORIA_BAR_SEGMENTS; ++i)
             {
-                shown_euphoria = euphoria_meter;
-                euphoria_text.clear();
-                int filled = euphoria_meter * EUPHORIA_BAR_SEGMENTS / EUPHORIA_MAX;
-                bn::string<16> bar = "[";
-                bar.append(filled, '#');
-                bar.append(EUPHORIA_BAR_SEGMENTS - filled, '-');
-                bar.append("]");
-                text_generator.generate(-56, -58, bar, euphoria_text);
+                euphoria_meter_sprites[i].set_visible(true);
+                euphoria_meter_sprites[i].set_item(bn::sprite_items::meter_seg, i < filled ? 1 : 0);
             }
         }
         else
@@ -1855,19 +1883,34 @@ int main()
             {
                 heart_sprite.set_visible(false);
             }
+            for (bn::sprite_ptr& meter_sprite : euphoria_meter_sprites)
+            {
+                meter_sprite.set_visible(false);
+            }
         }
 
         bool euphoria_ready = euphoria_meter >= EUPHORIA_MAX && !euphoria_active;
-        for (bn::sprite_ptr& bar_sprite : euphoria_text)
         {
-            bn::sprite_palette_ptr bar_palette = bar_sprite.palette();
+            // Todos los segmentos comparten paleta: un solo fade alcanza.
+            bn::sprite_palette_ptr meter_palette = euphoria_meter_sprites[0].palette();
             if (euphoria_ready)
             {
-                bar_palette.set_fade(bn::colors::yellow, 0.6);
+                meter_palette.set_fade(bn::colors::yellow, 0.6);
             }
             else
             {
-                bar_palette.set_fade_intensity(0);
+                meter_palette.set_fade_intensity(0);
+            }
+        }
+
+        // Los destellos del anillo expiran solos (en pausa se ocultan al
+        // entrar, porque el reloj queda congelado).
+        for (int f = 0; f < 4; ++f)
+        {
+            if (lane_flash_until[f] != 0 && frame >= lane_flash_until[f])
+            {
+                lane_flash[f].set_visible(false);
+                lane_flash_until[f] = 0;
             }
         }
 

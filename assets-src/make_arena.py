@@ -48,6 +48,10 @@ def arena_pixel(x, y):
     if r > FLOOR_R:
         return None
     color = FLOOR
+    # Foco de luz en el centro: el héroe recorta contra un piso iluminado
+    # en vez de perderse en lo oscuro cuando hay mucha acción.
+    if r <= 15:
+        color = blend(FLOOR, INK, 0.16 if r <= 10 else 0.08)
     for lx, ly, lane_color in LANES:
         along = dx * lx + dy * ly
         across = abs(dx * ly - dy * lx)
