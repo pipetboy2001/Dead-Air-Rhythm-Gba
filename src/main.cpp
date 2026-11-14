@@ -147,6 +147,7 @@ namespace
         "EUFORIA LLENA: A = X2",
         "CORAZON: PEGALE Y CURA",
         "START PAUSA EL JUEGO",
+        "PSST: KONAMI",
         "B PARA VOLVER",
     };
     constexpr int HELP_LINE_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
@@ -166,9 +167,9 @@ namespace
     // Récord por canción y dificultad, persistido en SRAM. magic detecta la
     // primera vez que corre el juego en un cartucho/batería nueva (SRAM sin
     // inicializar, basura de fábrica) para no mostrar un récord falso.
-    // 54: DIFFICULTY_COUNT pasó de 3 a 4 (MUY DIFICIL) y eso corre todo
-    // el layout — el magic nuevo descarta saves viejos.
-    constexpr int SAVE_MAGIC = 0x474F4C54;
+    // 55: se sumó el flag konami al layout — el magic nuevo descarta
+    // saves viejos.
+    constexpr int SAVE_MAGIC = 0x474F4C55;
 
     // Tope del ajuste de latencia, en frames (~17 ms cada uno).
     constexpr int LATENCY_LIMIT = 15;
@@ -180,6 +181,7 @@ namespace
         int ranks[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // índice en RANK_NAMES
         int stars[SONG_LIST_COUNT][DIFFICULTY_COUNT]; // 1 = full combo logrado
         int latency; // frames que se restan al reloj de juicio (+ = pegas tarde)
+        int konami;  // easter egg: 1 = todo desbloqueado
     };
 
     bn::fixed_point lane_direction(lane ln)
@@ -309,6 +311,7 @@ int main()
             }
         }
         save.latency = 0;
+        save.konami = 0;
         bn::sram::write(save);
     }
 
@@ -323,7 +326,7 @@ int main()
     // prueba de "pasada en d".
     const auto song_unlocked = [&](int song, int diff)
     {
-        if (song == 0)
+        if (song == 0 || save.konami)
         {
             return true;
         }
@@ -393,6 +396,7 @@ int main()
 
     bn::vector<bn::sprite_ptr, 20> main_menu_line[MAIN_MENU_OPTION_COUNT];
     int main_menu_cursor = 0;
+    int konami_progress = 0;
 
     const auto draw_main_menu = [&]()
     {
@@ -436,7 +440,9 @@ int main()
         for (int i = 0; i < HELP_LINE_COUNT; ++i)
         {
             help_text[i].clear();
-            text_generator.generate(-74, -56 + i * 16, HELP_LINES[i], help_text[i]);
+            // Interlineado 14 y no 16: con la pista del easter egg son 9
+            // líneas y tienen que entrar en la tarjeta.
+            text_generator.generate(-74, -56 + i * 14, HELP_LINES[i], help_text[i]);
         }
     };
 
@@ -870,7 +876,48 @@ int main()
     {
         if (phase == game_phase::main_menu)
         {
-            if (bn::keypad::up_pressed())
+            // Easter egg: el código Konami (arriba arriba abajo abajo izq
+            // der izq der B A) desbloquea todas las canciones en todas las
+            // dificultades. Se chequea primero para poder consumir la A
+            // final sin que active la opción del menú; los arriba/abajo
+            // intermedios mueven el cursor igual (y quedan donde estaban).
+            bool konami_done = false;
+            {
+                constexpr int KONAMI_SEQ[] = { 0, 0, 1, 1, 2, 3, 2, 3, 4, 5 };
+                int pressed = bn::keypad::up_pressed() ? 0
+                        : bn::keypad::down_pressed() ? 1
+                        : bn::keypad::left_pressed() ? 2
+                        : bn::keypad::right_pressed() ? 3
+                        : bn::keypad::b_pressed() ? 4
+                        : bn::keypad::a_pressed() ? 5 : -1;
+                if (pressed >= 0)
+                {
+                    if (pressed == KONAMI_SEQ[konami_progress])
+                    {
+                        ++konami_progress;
+                    }
+                    else
+                    {
+                        konami_progress = pressed == KONAMI_SEQ[0] ? 1 : 0;
+                    }
+                    if (konami_progress == 10)
+                    {
+                        konami_progress = 0;
+                        konami_done = true;
+                    }
+                }
+            }
+
+            if (konami_done)
+            {
+                if (!save.konami)
+                {
+                    save.konami = 1;
+                    bn::sram::write(save);
+                }
+                bn::sound_items::sfx_hit.play();
+            }
+            else if (bn::keypad::up_pressed())
             {
                 main_menu_cursor = (main_menu_cursor + MAIN_MENU_OPTION_COUNT - 1) % MAIN_MENU_OPTION_COUNT;
                 draw_main_menu();
