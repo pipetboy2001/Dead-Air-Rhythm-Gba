@@ -109,6 +109,25 @@ def panel_pixel(x, y):
     return color
 
 
+# Tarjeta de cursor estilo osu!: un resaltador de una fila que main.cpp
+# desliza detrás de la opción seleccionada en los menús. Centrada en el
+# bmp para que la posición del BG sea directamente la fila resaltada.
+CURSOR = (43, 120, 213, 136)
+CURSOR_RADIUS = 6
+CURSOR_STRIP = 4  # borde izquierdo de color, como las tarjetas de osu
+
+
+def cursor_pixel(x, y):
+    if not in_rounded_rect(x, y, CURSOR, CURSOR_RADIUS):
+        return None
+    inner = (CURSOR[0] + 1, CURSOR[1] + 1, CURSOR[2] - 1, CURSOR[3] - 1)
+    if not in_rounded_rect(x, y, inner, CURSOR_RADIUS - 1):
+        return blend(FLOOR, INK, 0.55)
+    if x + 0.5 <= CURSOR[0] + 1 + CURSOR_STRIP:
+        return (0xFF, 0xB2, 0x3E)  # dorado héroe
+    return blend(FLOOR, INK, 0.14)
+
+
 def build(name, pixel_fn):
     palette = [(255, 0, 255)]  # indice 0 = transparente, nunca pintado
     indices = bytearray(W * H)
@@ -161,3 +180,4 @@ def build(name, pixel_fn):
 if __name__ == "__main__":
     build("arena", arena_pixel)
     build("menu_panel", panel_pixel)
+    build("cursor_card", cursor_pixel)

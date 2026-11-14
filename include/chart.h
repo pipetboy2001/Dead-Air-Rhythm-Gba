@@ -77,8 +77,12 @@ private:
     unsigned _state;
 };
 
-inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
+// song_seed hace único el chart de cada combinación canción+dificultad
+// (mismo generador, otra semilla): dos canciones en NORMAL ya no son
+// la misma secuencia.
+inline void build_chart(difficulty diff, unsigned song_seed, bn::ivector<chart_note>& out)
 {
+    out.clear();
     // Carriles habilitados por dificultad: la progresión suma un carril
     // por escalón, así alguien nuevo aprende el timing en uno solo antes
     // de preocuparse por las direcciones.
@@ -109,7 +113,7 @@ inline void build_chart(difficulty diff, bn::ivector<chart_note>& out)
             : diff == difficulty::normal ? 17u
             : diff == difficulty::dificil ? 29u
             : diff == difficulty::muy_dificil ? 37u : 43u;
-    chart_rng rng(seed);
+    chart_rng rng(seed + song_seed * 101u);
 
     // Ráfagas (fila de 3, estilo Muse Dash): cada tanto viene una fila
     // que se revienta tocando la cruceta 3 veces; hold_beats es la

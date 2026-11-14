@@ -40,16 +40,21 @@ def bluify(color):
 
 # (salida, hoja, [(col, fila), ...], recolor) — cada celda es 16x16; varias
 # celdas se apilan verticalmente (frames de animacion, como hero.bmp).
+# Enemigos: 4 frames = [frente0, frente1, lado0, lado1]. Los carriles
+# laterales usan el ciclo de lado (espejado por código según dirección);
+# arriba/abajo usan el de frente.
 SPRITES = [
-    ("enemy_bat", "enemies/bat.png", [(0, 0), (1, 0)], None),
-    ("enemy_rat", "enemies/rat.png", [(0, 0), (1, 0)], None),
-    ("enemy_skeleton", "enemies/skeleton.png", [(0, 0), (1, 0)], None),
-    ("enemy_slime", "enemies/slime.png", [(0, 0), (1, 0)], None),
-    ("enemy_fly", "enemies/fly.png", [(1, 2), (2, 2)], None),
-    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0), (2, 0)], None),
-    ("enemy_ghost", "enemies/ghost.png", [(1, 0), (2, 0)], None),
-    ("enemy_goblin", "enemies/goblin.png", [(1, 0), (2, 0)], None),
-    ("enemy_spider", "enemies/spider.png", [(1, 2), (2, 2)], None),
+    ("enemy_bat", "enemies/bat.png", [(0, 0), (1, 0), (0, 2), (1, 2)], None),
+    ("enemy_rat", "enemies/rat.png", [(0, 0), (1, 0), (0, 2), (1, 2)], None),
+    ("enemy_skeleton", "enemies/skeleton.png", [(0, 0), (1, 0), (0, 2), (1, 2)], None),
+    ("enemy_slime", "enemies/slime.png", [(0, 0), (1, 0), (0, 2), (1, 2)], None),
+    # La mosca no tiene frames de frente limpios: el ciclo lateral sirve
+    # para ambas orientaciones.
+    ("enemy_fly", "enemies/fly.png", [(1, 2), (2, 2), (1, 2), (2, 2)], None),
+    ("enemy_flying_skull", "enemies/flying_skull.png", [(1, 0), (2, 0), (0, 2), (1, 2)], None),
+    ("enemy_ghost", "enemies/ghost.png", [(1, 0), (2, 0), (0, 2), (1, 2)], None),
+    ("enemy_goblin", "enemies/goblin.png", [(1, 0), (2, 0), (0, 2), (1, 2)], None),
+    ("enemy_spider", "enemies/spider.png", [(1, 2), (2, 2), (0, 4), (1, 4)], None),
     ("hero", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], None),
     ("hero_elf", "dungeon/elf.png", [(0, 0), (1, 0), (2, 0)], bluify),
 ]

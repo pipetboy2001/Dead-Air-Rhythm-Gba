@@ -27,6 +27,7 @@
 #include "bn_regular_bg_items_menu_panel.h"
 #include "bn_regular_bg_items_logo.h"
 #include "bn_regular_bg_items_zone_floor.h"
+#include "bn_regular_bg_items_cursor_card.h"
 #include "bn_bg_palette_ptr.h"
 #include "bn_sprite_items_hero.h"
 #include "bn_sprite_items_weapon_sword.h"
@@ -311,43 +312,9 @@ int main()
         bn::sram::write(save);
     }
 
-    bn::vector<chart_note, CHART_MAX_NOTES> facil_chart;
-    bn::vector<chart_note, CHART_MAX_NOTES> normal_chart;
-    bn::vector<chart_note, CHART_MAX_NOTES> dificil_chart;
-    bn::vector<chart_note, CHART_MAX_NOTES> muy_dificil_chart;
-    bn::vector<chart_note, CHART_MAX_NOTES> boss_chart;
-    build_chart(difficulty::facil, facil_chart);
-    build_chart(difficulty::normal, normal_chart);
-    build_chart(difficulty::dificil, dificil_chart);
-    build_chart(difficulty::muy_dificil, muy_dificil_chart);
-    build_chart(difficulty::boss, boss_chart);
-
-    const auto chart_for = [&](int song_index, int diff_index) -> const bn::ivector<chart_note>&
-    {
-        // El BOSS juega un escalón más arriba de lo elegido; en MUY
-        // DIFICIL usa el chart especial de boss.
-        if (song_index == BOSS_SONG_INDEX)
-        {
-            ++diff_index;
-        }
-        if (diff_index == 0)
-        {
-            return facil_chart;
-        }
-        if (diff_index == 1)
-        {
-            return normal_chart;
-        }
-        if (diff_index == 2)
-        {
-            return dificil_chart;
-        }
-        if (diff_index == 3)
-        {
-            return muy_dificil_chart;
-        }
-        return boss_chart;
-    };
+    // Chart de la partida en curso: se construye en reset_game() con la
+    // semilla de canción+dificultad (cada combinación es única).
+    bn::vector<chart_note, CHART_MAX_NOTES> current_chart;
 
     bn::sprite_text_generator text_generator(common::variable_8x16_sprite_font);
 
@@ -385,6 +352,14 @@ int main()
     bn::regular_bg_ptr logo_bg = bn::regular_bg_items::logo.create_bg(0, 0);
     logo_bg.set_z_order(-2);
 
+    // Tarjeta de cursor estilo osu!: se desliza detrás de la opción
+    // seleccionada en todos los menús (reemplaza al ">" de texto).
+    // Requiere BN_CFG_BGS_MAX_ITEMS=8 en el Makefile: es el 5º BG, aunque
+    // nunca hay más de 4 visibles a la vez.
+    bn::regular_bg_ptr cursor_bg = bn::regular_bg_items::cursor_card.create_bg(0, 0);
+    cursor_bg.set_z_order(-3);
+    bn::fixed cursor_card_y = -10;
+
     bn::vector<bn::sprite_ptr, 20> title_line1;
     bn::vector<bn::sprite_ptr, 24> title_line2;
 
@@ -404,11 +379,10 @@ int main()
         {
             main_menu_line[k].clear();
             bn::fixed y = -10 + k * 18;
-            if (k == main_menu_cursor)
-            {
-                text_generator.generate(-56, y, ">", main_menu_line[k]);
-            }
-            text_generator.generate(-42, y, MAIN_MENU_OPTIONS[k], main_menu_line[k]);
+            // La opción elegida la marca la tarjeta de cursor; el texto
+            // seleccionado se corre un pelo, como las tarjetas de osu.
+            text_generator.generate(k == main_menu_cursor ? -38 : -42, y,
+                    MAIN_MENU_OPTIONS[k], main_menu_line[k]);
         }
 
         title_line2.clear();
@@ -495,10 +469,11 @@ int main()
     bn::vector<bn::sprite_ptr, 24> record_line;
     int menu_song = 0;
     int menu_difficulty = 1;
+    int menu_scroll = 0; // fila visible superior; el cursor lo necesita
 
     const auto draw_menu = [&]()
     {
-        int menu_scroll = menu_song - VISIBLE_SONGS / 2;
+        menu_scroll = menu_song - VISIBLE_SONGS / 2;
         if (menu_scroll < 0)
         {
             menu_scroll = 0;
@@ -513,11 +488,10 @@ int main()
             menu_line[i].clear();
             int k = menu_scroll + i;
             bn::fixed y = -40 + i * 16;
-            if (k == menu_song)
-            {
-                text_generator.generate(-74, y, ">", menu_line[i]);
-            }
-            text_generator.generate(-60, y, SONG_LIST[k].name, menu_line[i]);
+            // La canción elegida la marca la tarjeta de cursor; su nombre
+            // se corre un pelo, como las tarjetas de osu.
+            text_generator.generate(k == menu_song ? -54 : -60, y,
+                    SONG_LIST[k].name, menu_line[i]);
         }
 
         difficulty_line.clear();
@@ -578,11 +552,8 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
-            if (k == ended_cursor)
-            {
-                text_generator.generate(-56, y, ">", ended_line[k]);
-            }
-            text_generator.generate(-42, y, ENDED_OPTIONS[k], ended_line[k]);
+            text_generator.generate(k == ended_cursor ? -38 : -42, y,
+                    ENDED_OPTIONS[k], ended_line[k]);
         }
     };
 
@@ -593,11 +564,8 @@ int main()
         {
             ended_line[k].clear();
             bn::fixed y = 40 + k * 18;
-            if (k == ended_cursor)
-            {
-                text_generator.generate(-56, y, ">", ended_line[k]);
-            }
-            text_generator.generate(-42, y, PAUSE_OPTIONS[k], ended_line[k]);
+            text_generator.generate(k == ended_cursor ? -38 : -42, y,
+                    PAUSE_OPTIONS[k], ended_line[k]);
         }
     };
 
@@ -719,6 +687,11 @@ int main()
         frames_per_beat = SONG_LIST[selected_song_index].frames_per_beat;
         approach_frames = frames_per_beat * 3;
         lead_in_frames = approach_frames;
+        // El BOSS juega un escalón más arriba de lo elegido; en MUY
+        // DIFICIL usa el chart especial difficulty::boss.
+        int chart_diff = selected_difficulty
+                + (selected_song_index == BOSS_SONG_INDEX ? 1 : 0);
+        build_chart(difficulty(chart_diff), unsigned(selected_song_index), current_chart);
         hero_item = HEROES[SONG_LIST[selected_song_index].hero];
         hero_sprite.set_item(*hero_item, 0);
         bn::bg_palette_ptr zone_palette = zone_bg.palette();
@@ -1084,7 +1057,6 @@ int main()
         }
         else
         {
-            const bn::ivector<chart_note>& current_chart = chart_for(selected_song_index, selected_difficulty);
             while (next_chart_index < current_chart.size() && !active_notes.full() &&
                    lead_in_frames + current_chart[next_chart_index].beat * frames_per_beat - frame <= approach_frames)
             {
@@ -1170,15 +1142,27 @@ int main()
                 note.sprite->set_position(lane_direction(note.ln) * distance);
                 if (note.type != enemy_type::heart) // el corazón tiene 1 frame
                 {
-                    note.sprite->set_item(enemy_item, anim_step);
+                    // Mirando al centro: los carriles laterales usan el ciclo
+                    // de lado (frames 2-3; el arte mira a la izquierda, así
+                    // que el carril izquierdo se espeja para mirar a la
+                    // derecha). Arriba/abajo usan el ciclo de frente (0-1).
+                    int facing_base = (note.ln == lane::left || note.ln == lane::right) ? 2 : 0;
+                    bool facing_flip = note.ln == lane::left;
+                    note.sprite->set_item(enemy_item, facing_base + anim_step);
+                    note.sprite->set_horizontal_flip(facing_flip);
+
+                    for (int t = 0; t < note.trail.size(); ++t)
+                    {
+                        // Frames alternados a lo largo de la fila: efecto onda.
+                        note.trail[t].set_item(enemy_item, facing_base + (anim_step + t + 1) % 2);
+                        note.trail[t].set_horizontal_flip(facing_flip);
+                    }
                 }
                 style_sprite(*note.sprite, note.type, euphoria_active);
 
                 for (int t = 0; t < note.trail.size(); ++t)
                 {
                     note.trail[t].set_position(lane_direction(note.ln) * (distance + 14 * (t + 1)));
-                    // Frames alternados a lo largo de la fila: efecto onda.
-                    note.trail[t].set_item(enemy_item, (anim_step + t + 1) % 2);
                 }
 
                 ++i;
@@ -1410,6 +1394,44 @@ int main()
         zone_bg.set_visible(battle_scene);
         panel_bg.set_visible(phase != game_phase::playing);
         logo_bg.set_visible(phase == game_phase::main_menu);
+
+        // Tarjeta de cursor: persigue a la opción seleccionada con un
+        // deslizamiento suave (estilo osu); se esconde donde no hay lista.
+        {
+            bn::fixed cursor_target = 0;
+            bool cursor_visible = true;
+            if (phase == game_phase::main_menu)
+            {
+                cursor_target = -10 + main_menu_cursor * 18;
+            }
+            else if (phase == game_phase::song_select)
+            {
+                cursor_target = -40 + (menu_song - menu_scroll) * 16;
+            }
+            else if (phase == game_phase::paused || phase == game_phase::ended)
+            {
+                cursor_target = 40 + ended_cursor * 18;
+            }
+            else
+            {
+                cursor_visible = false;
+            }
+            cursor_bg.set_visible(cursor_visible);
+            if (cursor_visible)
+            {
+                bn::fixed delta = cursor_target - cursor_card_y;
+                if (delta > 40 || delta < -40)
+                {
+                    // Cambio de menú: aparece directo en su lugar.
+                    cursor_card_y = cursor_target;
+                }
+                else
+                {
+                    cursor_card_y += delta / 3;
+                }
+                cursor_bg.set_position(0, cursor_card_y);
+            }
+        }
 
         // Temblor de la arena al fallar.
         if (phase == game_phase::playing && frame < shake_until)
