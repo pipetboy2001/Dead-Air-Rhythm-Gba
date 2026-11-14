@@ -26,6 +26,8 @@
 #include "bn_regular_bg_items_arena.h"
 #include "bn_regular_bg_items_menu_panel.h"
 #include "bn_regular_bg_items_logo.h"
+#include "bn_regular_bg_items_zone_floor.h"
+#include "bn_bg_palette_ptr.h"
 #include "bn_sprite_items_hero.h"
 #include "bn_sprite_items_weapon_sword.h"
 #include "bn_sprite_items_heart.h"
@@ -40,6 +42,7 @@
 #include "bn_sprite_items_enemy_spider.h"
 #include "bn_sprite_items_hero_elf.h"
 #include "bn_sprite_items_heart_pickup.h"
+#include "bn_sprite_items_spark.h"
 
 #include "common_variable_8x16_sprite_font.h"
 
@@ -142,9 +145,9 @@ namespace
         "AL PISAR EL ANILLO",
         "FILA DE 3: TOCA LA",
         "CRUCETA 3 VECES",
-        "EUFORIA LLENA: A",
-        "PUNTOS DOBLES UN RATO",
+        "EUFORIA LLENA: A = X2",
         "CORAZON: PEGALE Y CURA",
+        "START PAUSA EL JUEGO",
         "B PARA VOLVER",
     };
     constexpr int HELP_LINE_COUNT = sizeof(HELP_LINES) / sizeof(HELP_LINES[0]);
@@ -359,6 +362,13 @@ int main()
     // pone el loop principal.
     bn::regular_bg_ptr arena_bg = bn::regular_bg_items::arena.create_bg(0, 0);
     arena_bg.set_visible(false);
+
+    // Piso de mazmorra tileado detrás de la arena (make_zone_bg.py);
+    // reset_game() lo tiñe con el zone_color de la canción. z_order mayor
+    // = más atrás que la arena.
+    bn::regular_bg_ptr zone_bg = bn::regular_bg_items::zone_floor.create_bg(0, 0);
+    zone_bg.set_visible(false);
+    zone_bg.set_z_order(1);
 
     // Tarjeta de menú (borde, sombra desplazada y barra de acento con los
     // colores de carril). Exterior transparente; en la pantalla de fin se
@@ -617,6 +627,21 @@ int main()
     };
     bn::vector<dying_enemy, 8> dying_enemies;
 
+    // Chispas al conectar un golpe: salen del punto del anillo con un
+    // empujón y caen con gravedad unos frames.
+    struct spark
+    {
+        bn::sprite_ptr sprite;
+        bn::fixed_point velocity;
+        int born;
+    };
+    bn::vector<spark, 12> sparks;
+
+    constexpr bn::fixed_point SPARK_DIRS[] = {
+        { 2.6, -1.4 }, { -2.6, -1.4 }, { 1.4, -2.6 }, { -1.4, -2.6 },
+        { 3.0, 0.4 }, { -3.0, 0.4 }, { 0.8, -3.0 }, { -0.8, -3.0 },
+    };
+
     // En pausa la tarjeta debe verse limpia: se ocultan héroe, espada y
     // enemigos (y se restauran al continuar).
     const auto set_battle_sprites_visible = [&](bool visible)
@@ -665,6 +690,7 @@ int main()
     {
         active_notes.clear();
         dying_enemies.clear();
+        sparks.clear();
         shake_until = 0;
         frame = 0;
         next_chart_index = 0;
@@ -683,6 +709,8 @@ int main()
         judgement_text.clear();
         hero_item = HEROES[SONG_LIST[selected_song_index].hero];
         hero_sprite.set_item(*hero_item, 0);
+        bn::bg_palette_ptr zone_palette = zone_bg.palette();
+        zone_palette.set_fade(SONG_LIST[selected_song_index].zone_color, 0.55);
         hero_sprite.set_position(0, 0);
         bn::sprite_palette_ptr reset_palette = hero_sprite.palette();
         reset_palette.set_fade_intensity(0);
@@ -766,6 +794,15 @@ int main()
         judgement_text.clear();
         text_generator.generate(-40, 50, tier.label, judgement_text);
         judgement_until = frame + JUDGEMENT_FRAMES;
+
+        // Ráfaga de chispas desde el punto del anillo donde conectó.
+        bn::fixed_point ring_point = lane_direction(note.ln) * HIT_DISTANCE;
+        for (int s = 0; s < 4 && !sparks.full(); ++s)
+        {
+            int dir = (frame + s * 2) % 8;
+            sparks.push_back({ bn::sprite_items::spark.create_sprite(ring_point),
+                               SPARK_DIRS[dir], frame });
+        }
 
         bn::sound_items::sfx_hit.play();
     };
@@ -980,6 +1017,7 @@ int main()
                 }
                 active_notes.clear();
                 dying_enemies.clear();
+                sparks.clear();
                 score_text.clear();
                 combo_text.clear();
                 euphoria_text.clear();
@@ -1291,6 +1329,7 @@ int main()
                 // Tarjeta limpia: fuera combate y texto del último juicio.
                 set_battle_sprites_visible(false);
                 dying_enemies.clear();
+                sparks.clear();
                 judgement_text.clear();
                 message_text.clear();
                 text_generator.generate(-24, -28, "PAUSA", message_text);
@@ -1317,6 +1356,20 @@ int main()
                 dying.sprite.set_position(lane_direction(dying.ln) * distance);
                 ++d;
             }
+
+            int p = 0;
+            while (p < sparks.size())
+            {
+                spark& sp = sparks[p];
+                if (frame - sp.born > 12)
+                {
+                    sparks.erase(sparks.begin() + p);
+                    continue;
+                }
+                sp.velocity.set_y(sp.velocity.y() + bn::fixed(0.3)); // gravedad
+                sp.sprite.set_position(sp.sprite.position() + sp.velocity);
+                ++p;
+            }
         }
 
         if (!judgement_text.empty() && frame > judgement_until)
@@ -1339,8 +1392,10 @@ int main()
 
         // La arena solo tiene sentido jugando (y de fondo en la pantalla de
         // fin); en los menús se esconde y queda el color plano de siempre.
-        arena_bg.set_visible(phase == game_phase::playing || phase == game_phase::ended
-                || phase == game_phase::paused);
+        bool battle_scene = phase == game_phase::playing || phase == game_phase::ended
+                || phase == game_phase::paused;
+        arena_bg.set_visible(battle_scene);
+        zone_bg.set_visible(battle_scene);
         panel_bg.set_visible(phase != game_phase::playing);
         logo_bg.set_visible(phase == game_phase::main_menu);
 

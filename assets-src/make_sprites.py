@@ -86,8 +86,27 @@ def convert(name, sheet_path, cells, recolor=None):
     return out, palette
 
 
+def make_spark():
+    """Chispa 8x8 para las particulas de golpe: rombo dorado con nucleo
+    blanco, dibujado a mano (no viene del pack)."""
+    palette = [TRANSPARENT, (0xFF, 0xD8, 0x3E), (0xFF, 0xFF, 0xF0)]
+    out = Image.new("P", (8, 8))
+    pixels = []
+    for y in range(8):
+        for x in range(8):
+            dist = abs(x - 3.5) + abs(y - 3.5)
+            pixels.append(2 if dist <= 1.5 else 1 if dist <= 3.5 else 0)
+    out.putdata(pixels)
+    out.putpalette([c for rgb in palette for c in rgb] + [0] * (768 - 9))
+    out.save(OUT / "spark.bmp")
+    (OUT / "spark.json").write_text('{\n    "type": "sprite",\n\t"height": 8\n}\n')
+    print("spark: 1 frame, 3 colores")
+    return out, palette
+
+
 def main():
     results = [convert(*spec) for spec in SPRITES]
+    results.append(make_spark())
 
     # Preview ampliada para revisar los frames elegidos.
     Z = 6
