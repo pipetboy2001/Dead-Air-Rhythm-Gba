@@ -7,8 +7,12 @@ hardware real (GBA SP).
 
 ## Qué tiene
 
-- **9 canciones** × 3 dificultades, cada una con récord, rango (S/A/B/C) y
-  estrella de full combo guardados en SRAM.
+- **9 canciones** × 4 dificultades con progresión por carriles: FACIL usa un
+  solo carril para aprender el timing, y cada escalón suma uno hasta MUY
+  DIFICIL con los cuatro. Cada combinación canción+dificultad tiene su
+  propio chart, con récord, rango (S/A/B/C) y estrella de full combo
+  guardados en SRAM.
+- **Tempo real por canción**, leído del header de cada módulo tracker.
 - **Ráfagas** (filas de 3 enemigos): se revientan tocando la cruceta 3 veces,
   estilo Muse Dash / Radio Hammer.
 - **Euforia**: con el medidor lleno, A activa puntos dobles por un rato.
